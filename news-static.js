@@ -1,18 +1,28 @@
 // Static-news adapter: keeps the globe independent from external news APIs.
-// The Pages workflow generates data/countries/jp.json before deployment.
+// The Pages workflow generates Japan national + 47 prefecture JSON files before deployment.
 
 strings['zh-Hant'].loading = '正在讀取最新日本新聞…';
-strings['zh-Hant'].none = '目前這個地區還沒有建立新聞來源。先試日本。';
+strings['zh-Hant'].none = '目前找不到這個地區的近期新聞。';
 strings['zh-Hant'].error = '新聞快取還沒準備好，等 GitHub Pages 更新後再試一次。';
 strings['zh-Hant'].source = '新聞來源：Google News RSS；由 GitHub Actions 定期更新。';
 strings.en.loading = 'Loading the latest Japan headlines…';
-strings.en.none = 'A news feed has not been added for this location yet. Try Japan.';
+strings.en.none = 'No recent headlines were found for this location.';
 strings.en.error = 'The news cache is not ready yet. Try again after the next Pages deployment.';
 strings.en.source = 'News source: Google News RSS, refreshed by GitHub Actions.';
 strings.ja.loading = '日本の最新ニュースを読み込み中…';
-strings.ja.none = 'この地域のニュースフィードはまだ準備中です。まず日本をお試しください。';
+strings.ja.none = 'この地域の最近のニュースは見つかりませんでした。';
 strings.ja.error = 'ニュースキャッシュがまだ準備できていません。Pages 更新後にもう一度お試しください。';
 strings.ja.source = 'ニュース提供：Google News RSS。GitHub Actions で定期更新。';
+
+const JP_REGION_SLUGS = {
+  Hokkaido:'hokkaido', Aomori:'aomori', Iwate:'iwate', Miyagi:'miyagi', Akita:'akita', Yamagata:'yamagata', Fukushima:'fukushima',
+  Ibaraki:'ibaraki', Tochigi:'tochigi', Gunma:'gunma', Saitama:'saitama', Chiba:'chiba', Tokyo:'tokyo', Kanagawa:'kanagawa',
+  Niigata:'niigata', Toyama:'toyama', Ishikawa:'ishikawa', Fukui:'fukui', Yamanashi:'yamanashi', Nagano:'nagano', Gifu:'gifu',
+  Shizuoka:'shizuoka', Aichi:'aichi', Mie:'mie', Shiga:'shiga', Kyoto:'kyoto', Osaka:'osaka', Hyogo:'hyogo', Nara:'nara',
+  Wakayama:'wakayama', Tottori:'tottori', Shimane:'shimane', Okayama:'okayama', Hiroshima:'hiroshima', Yamaguchi:'yamaguchi',
+  Tokushima:'tokushima', Kagawa:'kagawa', Ehime:'ehime', Kochi:'kochi', Fukuoka:'fukuoka', Saga:'saga', Nagasaki:'nagasaki',
+  Kumamoto:'kumamoto', Oita:'oita', Miyazaki:'miyazaki', Kagoshima:'kagoshima', Okinawa:'okinawa'
+};
 
 async function fetchStaticJson(path) {
   const controller = new AbortController();
@@ -37,12 +47,10 @@ function renderStaticNews(articles) {
     const title = (article.title || '').trim();
     const url = article.url || '';
     if (!title || !url) continue;
-
     const key = title.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
     unique.push(article);
-
     if (unique.length >= 10) break;
   }
 
@@ -107,13 +115,19 @@ fetchNews = async function () {
     return;
   }
 
+  let path = 'data/countries/jp.json';
+  if (state.region) {
+    const slug = JP_REGION_SLUGS[state.region];
+    if (slug) path = `data/jp/${slug}.json`;
+  }
+
   setNewsState(t('loading'), true);
   try {
-    const data = await fetchStaticJson('data/countries/jp.json');
+    const data = await fetchStaticJson(path);
     const articles = Array.isArray(data.articles) ? data.articles : [];
     renderStaticNews(articles);
   } catch (error) {
-    console.error('Static news load failed', error);
+    console.error('Static news load failed', path, error);
     setNewsState(t('error'));
   }
 };
