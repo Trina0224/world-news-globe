@@ -27,9 +27,12 @@ jobs:
         uses: actions/checkout@v4
       - name: Fetch Google News RSS
         run: python3 scripts/fetch_news.py
-      - name: Validate generated news
+      - name: Build Japan prefecture map
+        run: python3 scripts/fetch_japan_map.py
+      - name: Validate generated news and map
         run: |
           test -s data/countries/jp.json
+          test -s data/maps/japan-prefectures.geojson
           python3 - <<'PY'
           import glob, json
 
@@ -42,6 +45,11 @@ jobs:
           files = sorted(glob.glob('data/jp/*.json'))
           if len(files) != 47:
               raise SystemExit(f'Expected 47 prefecture files, got {len(files)}')
+
+          with open('data/maps/japan-prefectures.geojson', encoding='utf-8') as f:
+              pref_map = json.load(f)
+          if len(pref_map.get('features', [])) != 47:
+              raise SystemExit('Japan map must contain 47 prefecture features')
 
           empty = []
           total = 0
@@ -76,6 +84,7 @@ jobs:
           print('Japan national headlines:', national_count)
           print('Prefecture feeds:', len(files))
           print('Prefecture headlines total:', total)
+          print('Japan map prefectures:', len(pref_map.get('features', [])))
           print('Sample overlaps:', overlaps)
           if any(v >= 0.8 for v in overlaps.values()):
               raise SystemExit(f'Prefecture feeds are too similar: {overlaps}')
