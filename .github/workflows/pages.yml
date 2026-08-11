@@ -27,15 +27,18 @@ jobs:
         uses: actions/checkout@v4
       - name: Fetch Google News RSS
         run: python3 scripts/fetch_news.py
-      - name: Show generated news
+      - name: Validate generated news
         run: |
           test -s data/countries/jp.json
           python3 - <<'PY'
           import json
           with open('data/countries/jp.json', encoding='utf-8') as f:
               data = json.load(f)
-          print('Japan headlines:', len(data.get('articles', [])))
+          count = len(data.get('articles', []))
+          print('Japan headlines:', count)
           print('Generated:', data.get('generated_at'))
+          if count < 10:
+              raise SystemExit(f'Need at least 10 Japan headlines, got {count}')
           PY
       - name: Setup Pages
         uses: actions/configure-pages@v5
