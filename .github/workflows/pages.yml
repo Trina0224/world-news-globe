@@ -53,9 +53,32 @@ jobs:
               if count == 0:
                   empty.append(path)
 
+          def titles(path):
+              with open(path, encoding='utf-8') as f:
+                  data = json.load(f)
+              return [a.get('title','').strip() for a in data.get('articles', [])[:10] if a.get('title')]
+
+          tokyo = titles('data/jp/tokyo.json')
+          osaka = titles('data/jp/osaka.json')
+          hokkaido = titles('data/jp/hokkaido.json')
+          if not tokyo or not osaka or not hokkaido:
+              raise SystemExit('Tokyo/Osaka/Hokkaido feeds must all contain headlines')
+
+          def overlap(a, b):
+              sa, sb = set(a), set(b)
+              return len(sa & sb) / max(1, min(len(sa), len(sb)))
+
+          overlaps = {
+              'Tokyo-Osaka': overlap(tokyo, osaka),
+              'Tokyo-Hokkaido': overlap(tokyo, hokkaido),
+              'Osaka-Hokkaido': overlap(osaka, hokkaido),
+          }
           print('Japan national headlines:', national_count)
           print('Prefecture feeds:', len(files))
           print('Prefecture headlines total:', total)
+          print('Sample overlaps:', overlaps)
+          if any(v >= 0.8 for v in overlaps.values()):
+              raise SystemExit(f'Prefecture feeds are too similar: {overlaps}')
           if empty:
               print('WARNING: empty prefecture feeds:', ', '.join(empty))
           PY
