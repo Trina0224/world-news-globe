@@ -1,19 +1,41 @@
 #!/usr/bin/env python3
 import json
 import os
+import time
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
-OUT = "data/countries/jp.json"
 BASE = "https://news.google.com/rss"
-FEEDS = [
+COUNTRY_OUT = "data/countries/jp.json"
+PREFECTURE_DIR = "data/jp"
+
+NATIONAL_FEEDS = [
     ("top", f"{BASE}?hl=ja&gl=JP&ceid=JP:ja"),
     ("nation", f"{BASE}/headlines/section/topic/NATION?hl=ja&gl=JP&ceid=JP:ja"),
     ("japan", f"{BASE}/search?q={urllib.parse.quote('日本')}&hl=ja&gl=JP&ceid=JP:ja"),
     ("domestic", f"{BASE}/search?q={urllib.parse.quote('国内')}&hl=ja&gl=JP&ceid=JP:ja"),
+]
+
+PREFECTURES = [
+    ("hokkaido", "北海道", "北海道"), ("aomori", "青森県", "青森"), ("iwate", "岩手県", "岩手"),
+    ("miyagi", "宮城県", "宮城"), ("akita", "秋田県", "秋田"), ("yamagata", "山形県", "山形"),
+    ("fukushima", "福島県", "福島"), ("ibaraki", "茨城県", "茨城"), ("tochigi", "栃木県", "栃木"),
+    ("gunma", "群馬県", "群馬"), ("saitama", "埼玉県", "埼玉"), ("chiba", "千葉県", "千葉"),
+    ("tokyo", "東京都", "東京"), ("kanagawa", "神奈川県", "神奈川"), ("niigata", "新潟県", "新潟"),
+    ("toyama", "富山県", "富山"), ("ishikawa", "石川県", "石川"), ("fukui", "福井県", "福井"),
+    ("yamanashi", "山梨県", "山梨"), ("nagano", "長野県", "長野"), ("gifu", "岐阜県", "岐阜"),
+    ("shizuoka", "静岡県", "静岡"), ("aichi", "愛知県", "愛知"), ("mie", "三重県", "三重"),
+    ("shiga", "滋賀県", "滋賀"), ("kyoto", "京都府", "京都"), ("osaka", "大阪府", "大阪"),
+    ("hyogo", "兵庫県", "兵庫"), ("nara", "奈良県", "奈良"), ("wakayama", "和歌山県", "和歌山"),
+    ("tottori", "鳥取県", "鳥取"), ("shimane", "島根県", "島根"), ("okayama", "岡山県", "岡山"),
+    ("hiroshima", "広島県", "広島"), ("yamaguchi", "山口県", "山口"), ("tokushima", "徳島県", "徳島"),
+    ("kagawa", "香川県", "香川"), ("ehime", "愛媛県", "愛媛"), ("kochi", "高知県", "高知"),
+    ("fukuoka", "福岡県", "福岡"), ("saga", "佐賀県", "佐賀"), ("nagasaki", "長崎県", "長崎"),
+    ("kumamoto", "熊本県", "熊本"), ("oita", "大分県", "大分"), ("miyazaki", "宮崎県", "宮崎"),
+    ("kagoshima", "鹿児島県", "鹿児島"), ("okinawa", "沖縄県", "沖縄"),
 ]
 
 
@@ -57,44 +79,86 @@ def parse_feed(name: str, url: str):
             "language": "Japanese",
             "feed": name,
         })
-    print(f"{name}: {len(result)} RSS items")
     return result
 
 
-def main():
-    merged = []
-    for name, url in FEEDS:
-        try:
-            merged.extend(parse_feed(name, url))
-        except Exception as exc:
-            print(f"WARNING: {name} feed failed: {exc}")
-
-    items = []
+def unique_articles(articles, limit=20):
+    result = []
     seen = set()
-    for article in merged:
+    for article in articles:
         key = article["title"].strip().casefold()
-        if key in seen:
+        if not key or key in seen:
             continue
         seen.add(key)
-        items.append(article)
-        if len(items) >= 20:
+        result.append(article)
+        if len(result) >= limit:
             break
+    return result
 
-    if len(items) < 10:
-        raise RuntimeError(f"Only {len(items)} unique Japan headlines were produced; refusing to deploy")
 
+def search_url(query: str):
+    return f"{BASE}/search?q={urllib.parse.quote(query)}&hl=ja&gl=JP&ceid=JP:ja"
+
+
+def write_payload(path, location, articles, scope):
     payload = {
-        "location": "Japan",
+        "location": location,
+        "scope": scope,
         "source": "Google News RSS",
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "article_count": len(items),
-        "articles": items,
+        "article_count": len(articles),
+        "articles": articles,
     }
-    os.makedirs(os.path.dirname(OUT), exist_ok=True)
-    with open(OUT, "w", encoding="utf-8") as f:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
         f.write("\n")
-    print(f"Wrote {len(items)} unique headlines to {OUT}")
+
+
+def build_national():
+    merged = []
+    for name, url in NATIONAL_FEEDS:
+        try:
+            articles = parse_feed(name, url)
+            print(f"national/{name}: {len(articles)} RSS items")
+            merged.extend(articles)
+        except Exception as exc:
+            print(f"WARNING: national/{name} failed: {exc}")
+    items = unique_articles(merged, 20)
+    if len(items) < 10:
+        raise RuntimeError(f"Only {len(items)} unique Japan headlines were produced; refusing to deploy")
+    write_payload(COUNTRY_OUT, "Japan", items, "country")
+    print(f"Wrote {len(items)} national headlines")
+
+
+def build_prefecture(slug, label, short_name):
+    merged = []
+    queries = [f'"{label}" ニュース when:1d']
+    if short_name != label:
+        queries.append(f'"{short_name}" ニュース when:1d')
+
+    for index, query in enumerate(queries):
+        try:
+            articles = parse_feed(f"prefecture-{index + 1}", search_url(query))
+            merged.extend(articles)
+        except Exception as exc:
+            print(f"WARNING: {label} query failed: {exc}")
+        if len(unique_articles(merged, 10)) >= 10:
+            break
+        time.sleep(0.08)
+
+    items = unique_articles(merged, 20)
+    write_payload(os.path.join(PREFECTURE_DIR, f"{slug}.json"), label, items, "prefecture")
+    print(f"{label}: {len(items)} unique headlines")
+
+
+def main():
+    build_national()
+    for slug, label, short_name in PREFECTURES:
+        build_prefecture(slug, label, short_name)
+        time.sleep(0.08)
+
+    print(f"Generated Japan national feed + {len(PREFECTURES)} prefecture feeds")
 
 
 if __name__ == "__main__":
