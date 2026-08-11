@@ -31,9 +31,25 @@ function styleWorldLayer() {
     .polygonLabel(d => `<div style="padding:6px 8px;font:12px -apple-system,sans-serif"><b>${displayName(d)}</b></div>`);
 }
 
+function clearWorldSelectionHighlight() {
+  if (!state.globe) return;
+  state.globe
+    .polygonAltitude(0.0015)
+    .polygonCapColor(() => 'rgba(64,95,118,0.16)')
+    .polygonSideColor(() => 'rgba(16,30,44,0.10)')
+    .polygonStrokeColor(() => 'rgba(205,226,240,0.42)');
+}
+
 async function enterJapanMap() {
   if (!state.globe || japanMapState.installing) return;
   japanMapState.installing = true;
+
+  // As soon as we enter the Japan drill-down, the whole-country selection
+  // highlight is no longer useful. Clear it before loading/zooming so Japan
+  // does not stay filled while the prefecture layer is being prepared.
+  clearWorldSelectionHighlight();
+  state.globe.pointOfView({ lat: 36.2, lng: 138.2, altitude: 0.72 }, 650);
+
   try {
     const features = await loadJapanPrefectures();
     if (!features.length) throw new Error('No prefecture geometry');
@@ -49,10 +65,11 @@ async function enterJapanMap() {
       styleJapanLayer();
       if (typeof fetchNews === 'function') setTimeout(fetchNews, 0);
     });
-    state.globe.pointOfView({ lat: 36.2, lng: 138.2, altitude: 0.72 }, 650);
     ui.globeStatus.textContent = 'Japan · 47 prefectures';
   } catch (e) {
     console.error('Japan prefecture map failed', e);
+    // If the prefecture layer fails to load, restore the normal world style.
+    styleWorldLayer();
   } finally {
     japanMapState.installing = false;
   }
