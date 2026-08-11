@@ -1,4 +1,4 @@
-// Stable hybrid mode: keep the 3D globe intact and switch to a separate 2D SVG Japan map.
+// Stable hybrid mode: keep the 3D globe alive underneath a separate 2D SVG Japan map.
 const JAPAN_OVERLAY_MAP = 'data/maps/japan-prefectures.geojson';
 const japanOverlay = {
   active: false,
@@ -11,6 +11,11 @@ const overlayEl = document.getElementById('japanOverlay');
 const overlaySvg = document.getElementById('japanOverlayMap');
 const backWorldBtn = document.getElementById('backWorldBtn');
 const overlayTitle = document.getElementById('japanOverlayTitle');
+
+const JP_FILL = 'rgba(55, 96, 122, 0.82)';
+const JP_STROKE = 'rgba(222, 238, 248, 0.92)';
+const JP_SELECTED = 'rgba(111, 211, 255, 0.95)';
+const JP_SELECTED_STROKE = 'rgba(255,255,255,1)';
 
 function overlayText() {
   if (state.lang === 'en') return { title: 'Japan · 47 Prefectures', back: '← World', status: 'Tap a prefecture' };
@@ -32,6 +37,16 @@ function geometryRings(g) {
   return [];
 }
 
+function paintPrefecture(group, selected) {
+  group.classList.toggle('selected', selected);
+  group.querySelectorAll('path').forEach(path => {
+    path.setAttribute('fill', selected ? JP_SELECTED : JP_FILL);
+    path.setAttribute('stroke', selected ? JP_SELECTED_STROKE : JP_STROKE);
+    path.setAttribute('stroke-width', selected ? '2' : '1.15');
+    path.setAttribute('vector-effect', 'non-scaling-stroke');
+  });
+}
+
 function renderJapanOverlay(features) {
   const pts = [];
   for (const f of features) for (const ring of geometryRings(f.geometry)) for (const p of ring) pts.push(p);
@@ -41,7 +56,7 @@ function renderJapanOverlay(features) {
   const lats = pts.map(p => p[1]);
   const minLon = Math.min(...lons), maxLon = Math.max(...lons);
   const minLat = Math.min(...lats), maxLat = Math.max(...lats);
-  const W = 900, H = 900, pad = 48;
+  const W = 900, H = 900, pad = 54;
   const scale = Math.min((W - pad * 2) / (maxLon - minLon), (H - pad * 2) / (maxLat - minLat));
   const x0 = (W - (maxLon - minLon) * scale) / 2;
   const y0 = (H - (maxLat - minLat) * scale) / 2;
@@ -66,12 +81,22 @@ function renderJapanOverlay(features) {
         return `${i ? 'L' : 'M'}${x.toFixed(2)},${y.toFixed(2)}`;
       }).join(' ') + ' Z';
       path.setAttribute('d', d);
+      path.style.pointerEvents = 'all';
       group.appendChild(path);
     }
 
+    paintPrefecture(group, false);
     group.addEventListener('click', () => choosePrefecture(f.properties.value));
-    group.addEventListener('pointerenter', () => { ui.globeStatus.textContent = f.properties.label; });
-    group.addEventListener('pointerleave', () => { ui.globeStatus.textContent = 'Japan · 47 prefectures'; });
+    group.addEventListener('pointerenter', () => {
+      if (group.dataset.value !== state.region) {
+        group.querySelectorAll('path').forEach(path => path.setAttribute('fill', 'rgba(85,156,190,0.92)'));
+      }
+      ui.globeStatus.textContent = f.properties.label;
+    });
+    group.addEventListener('pointerleave', () => {
+      paintPrefecture(group, group.dataset.value === state.region);
+      ui.globeStatus.textContent = 'Japan · 47 prefectures';
+    });
     overlaySvg.appendChild(group);
   }
   syncOverlaySelection();
@@ -80,7 +105,7 @@ function renderJapanOverlay(features) {
 async function ensureJapanOverlay() {
   if (japanOverlay.loaded) return true;
   try {
-    const r = await fetch(`${JAPAN_OVERLAY_MAP}?v=3`, { cache: 'force-cache' });
+    const r = await fetch(`${JAPAN_OVERLAY_MAP}?v=4`, { cache: 'force-cache' });
     if (!r.ok) throw new Error(`Japan map ${r.status}`);
     const data = await r.json();
     japanOverlay.features = Array.isArray(data.features) ? data.features : [];
@@ -97,7 +122,7 @@ async function ensureJapanOverlay() {
 
 function syncOverlaySelection() {
   overlaySvg.querySelectorAll('.jp-pref').forEach(el => {
-    el.classList.toggle('selected', el.dataset.value === state.region);
+    paintPrefecture(el, el.dataset.value === state.region);
   });
 }
 
@@ -116,9 +141,8 @@ async function enterJapanOverlay() {
   if (japanOverlay.active) return;
   if (!(await ensureJapanOverlay())) return;
   japanOverlay.active = true;
+  // Keep WebGL alive underneath. Do NOT hide or pause the globe on Safari/iPad.
   overlayEl.classList.remove('hidden');
-  ui.globe.classList.add('globe-hidden');
-  try { state.globe?.pauseAnimation?.(); } catch (_) {}
   state.region = '';
   updateRegionControls(true);
   ui.regionSelect.value = '';
@@ -131,15 +155,17 @@ function exitJapanOverlay() {
   if (!japanOverlay.active) return;
   japanOverlay.active = false;
   overlayEl.classList.add('hidden');
-  ui.globe.classList.remove('globe-hidden');
-  try { state.globe?.resumeAnimation?.(); } catch (_) {}
   state.region = '';
   state.country = null;
   refreshPolygonColors();
   updateLabels();
   ui.regionControls.classList.add('hidden');
   setNewsState(t('intro'));
-  resizeGlobe();
+  // Globe was never hidden, but force its canvas sizing once after the overlay disappears.
+  requestAnimationFrame(() => {
+    resizeGlobe();
+    try { state.globe?.renderer?.().render?.(state.globe.scene(), state.globe.camera()); } catch (_) {}
+  });
   ui.globeStatus.textContent = `${state.countries.length} countries`;
 }
 
@@ -152,7 +178,7 @@ ui.languageButtons.forEach(button => {
   button.addEventListener('click', () => setTimeout(updateOverlayText, 0));
 });
 
-// Watch the existing globe state instead of replacing globe.gl's polygon layer.
+// Watch the existing globe selection without ever replacing globe.gl polygons.
 setInterval(() => {
   if (state.country !== japanOverlay.lastCountry) {
     japanOverlay.lastCountry = state.country;
