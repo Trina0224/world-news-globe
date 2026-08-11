@@ -31,14 +31,33 @@ jobs:
         run: |
           test -s data/countries/jp.json
           python3 - <<'PY'
-          import json
+          import glob, json
+
           with open('data/countries/jp.json', encoding='utf-8') as f:
-              data = json.load(f)
-          count = len(data.get('articles', []))
-          print('Japan headlines:', count)
-          print('Generated:', data.get('generated_at'))
-          if count < 10:
-              raise SystemExit(f'Need at least 10 Japan headlines, got {count}')
+              national = json.load(f)
+          national_count = len(national.get('articles', []))
+          if national_count < 10:
+              raise SystemExit(f'Need at least 10 Japan headlines, got {national_count}')
+
+          files = sorted(glob.glob('data/jp/*.json'))
+          if len(files) != 47:
+              raise SystemExit(f'Expected 47 prefecture files, got {len(files)}')
+
+          empty = []
+          total = 0
+          for path in files:
+              with open(path, encoding='utf-8') as f:
+                  data = json.load(f)
+              count = len(data.get('articles', []))
+              total += count
+              if count == 0:
+                  empty.append(path)
+
+          print('Japan national headlines:', national_count)
+          print('Prefecture feeds:', len(files))
+          print('Prefecture headlines total:', total)
+          if empty:
+              print('WARNING: empty prefecture feeds:', ', '.join(empty))
           PY
       - name: Setup Pages
         uses: actions/configure-pages@v5
