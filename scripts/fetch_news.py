@@ -9,14 +9,22 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
 BASE = "https://news.google.com/rss"
-COUNTRY_OUT = "data/countries/jp.json"
-PREFECTURE_DIR = "data/jp"
+JP_COUNTRY_OUT = "data/countries/jp.json"
+JP_DIR = "data/jp"
+US_COUNTRY_OUT = "data/countries/us.json"
+US_DIR = "data/us"
 
-NATIONAL_FEEDS = [
+JP_NATIONAL_FEEDS = [
     ("top", f"{BASE}?hl=ja&gl=JP&ceid=JP:ja"),
     ("nation", f"{BASE}/headlines/section/topic/NATION?hl=ja&gl=JP&ceid=JP:ja"),
     ("japan", f"{BASE}/search?q={urllib.parse.quote('日本')}&hl=ja&gl=JP&ceid=JP:ja"),
     ("domestic", f"{BASE}/search?q={urllib.parse.quote('国内')}&hl=ja&gl=JP&ceid=JP:ja"),
+]
+
+US_NATIONAL_FEEDS = [
+    ("top", f"{BASE}?hl=en-US&gl=US&ceid=US:en"),
+    ("nation", f"{BASE}/headlines/section/topic/NATION?hl=en-US&gl=US&ceid=US:en"),
+    ("usa", f"{BASE}/search?q={urllib.parse.quote('United States when:1d')}&hl=en-US&gl=US&ceid=US:en"),
 ]
 
 PREFECTURES = [
@@ -38,15 +46,28 @@ PREFECTURES = [
     ("kagoshima", "鹿児島県", "鹿児島"), ("okinawa", "沖縄県", "沖縄"),
 ]
 
+US_STATES = [
+    ("alabama", "Alabama"), ("alaska", "Alaska"), ("arizona", "Arizona"), ("arkansas", "Arkansas"),
+    ("california", "California"), ("colorado", "Colorado"), ("connecticut", "Connecticut"), ("delaware", "Delaware"),
+    ("florida", "Florida"), ("georgia", "Georgia"), ("hawaii", "Hawaii"), ("idaho", "Idaho"),
+    ("illinois", "Illinois"), ("indiana", "Indiana"), ("iowa", "Iowa"), ("kansas", "Kansas"),
+    ("kentucky", "Kentucky"), ("louisiana", "Louisiana"), ("maine", "Maine"), ("maryland", "Maryland"),
+    ("massachusetts", "Massachusetts"), ("michigan", "Michigan"), ("minnesota", "Minnesota"), ("mississippi", "Mississippi"),
+    ("missouri", "Missouri"), ("montana", "Montana"), ("nebraska", "Nebraska"), ("nevada", "Nevada"),
+    ("new-hampshire", "New Hampshire"), ("new-jersey", "New Jersey"), ("new-mexico", "New Mexico"), ("new-york", "New York"),
+    ("north-carolina", "North Carolina"), ("north-dakota", "North Dakota"), ("ohio", "Ohio"), ("oklahoma", "Oklahoma"),
+    ("oregon", "Oregon"), ("pennsylvania", "Pennsylvania"), ("rhode-island", "Rhode Island"), ("south-carolina", "South Carolina"),
+    ("south-dakota", "South Dakota"), ("tennessee", "Tennessee"), ("texas", "Texas"), ("utah", "Utah"),
+    ("vermont", "Vermont"), ("virginia", "Virginia"), ("washington", "Washington"), ("west-virginia", "West Virginia"),
+    ("wisconsin", "Wisconsin"), ("wyoming", "Wyoming"),
+]
+
 
 def fetch(url: str) -> bytes:
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": "Mozilla/5.0 WorldNewsGlobe/1.0",
-            "Accept": "application/rss+xml, application/xml, text/xml, */*",
-        },
-    )
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 WorldNewsGlobe/1.0",
+        "Accept": "application/rss+xml, application/xml, text/xml, */*",
+    })
     with urllib.request.urlopen(req, timeout=20) as response:
         return response.read()
 
@@ -56,7 +77,7 @@ def text(node, name):
     return (child.text or "").strip() if child is not None else ""
 
 
-def parse_feed(name: str, url: str):
+def parse_feed(name: str, url: str, language: str):
     root = ET.fromstring(fetch(url))
     result = []
     for item in root.findall("./channel/item"):
@@ -76,15 +97,14 @@ def parse_feed(name: str, url: str):
             "url": link,
             "source": source,
             "published": published,
-            "language": "Japanese",
+            "language": language,
             "feed": name,
         })
     return result
 
 
 def unique_articles(articles, limit=20):
-    result = []
-    seen = set()
+    result, seen = [], set()
     for article in articles:
         key = article["title"].strip().casefold()
         if not key or key in seen:
@@ -96,8 +116,10 @@ def unique_articles(articles, limit=20):
     return result
 
 
-def search_url(query: str):
-    return f"{BASE}/search?q={urllib.parse.quote(query)}&hl=ja&gl=JP&ceid=JP:ja"
+def search_url(query: str, edition: str):
+    if edition == "jp":
+        return f"{BASE}/search?q={urllib.parse.quote(query)}&hl=ja&gl=JP&ceid=JP:ja"
+    return f"{BASE}/search?q={urllib.parse.quote(query)}&hl=en-US&gl=US&ceid=US:en"
 
 
 def write_payload(path, location, articles, scope):
@@ -115,20 +137,20 @@ def write_payload(path, location, articles, scope):
         f.write("\n")
 
 
-def build_national():
+def build_national(feeds, out_path, location, language):
     merged = []
-    for name, url in NATIONAL_FEEDS:
+    for name, url in feeds:
         try:
-            articles = parse_feed(name, url)
-            print(f"national/{name}: {len(articles)} RSS items")
+            articles = parse_feed(name, url, language)
+            print(f"{location}/national/{name}: {len(articles)} RSS items")
             merged.extend(articles)
         except Exception as exc:
-            print(f"WARNING: national/{name} failed: {exc}")
+            print(f"WARNING: {location}/national/{name} failed: {exc}")
     items = unique_articles(merged, 20)
     if len(items) < 10:
-        raise RuntimeError(f"Only {len(items)} unique Japan headlines were produced; refusing to deploy")
-    write_payload(COUNTRY_OUT, "Japan", items, "country")
-    print(f"Wrote {len(items)} national headlines")
+        raise RuntimeError(f"Only {len(items)} unique {location} headlines were produced; refusing to deploy")
+    write_payload(out_path, location, items, "country")
+    print(f"Wrote {len(items)} {location} national headlines")
 
 
 def build_prefecture(slug, label, short_name):
@@ -136,29 +158,47 @@ def build_prefecture(slug, label, short_name):
     queries = [f'"{label}" ニュース when:1d']
     if short_name != label:
         queries.append(f'"{short_name}" ニュース when:1d')
-
     for index, query in enumerate(queries):
         try:
-            articles = parse_feed(f"prefecture-{index + 1}", search_url(query))
-            merged.extend(articles)
+            merged.extend(parse_feed(f"prefecture-{index + 1}", search_url(query, "jp"), "Japanese"))
         except Exception as exc:
             print(f"WARNING: {label} query failed: {exc}")
         if len(unique_articles(merged, 10)) >= 10:
             break
         time.sleep(0.08)
-
     items = unique_articles(merged, 20)
-    write_payload(os.path.join(PREFECTURE_DIR, f"{slug}.json"), label, items, "prefecture")
+    write_payload(os.path.join(JP_DIR, f"{slug}.json"), label, items, "prefecture")
+    print(f"{label}: {len(items)} unique headlines")
+
+
+def build_state(slug, label):
+    if label == "Georgia":
+        query = '"Georgia" state news when:1d'
+    elif label == "Washington":
+        query = '"Washington state" news when:1d'
+    else:
+        query = f'"{label}" news when:1d'
+    try:
+        items = unique_articles(parse_feed("state", search_url(query, "us"), "English"), 20)
+    except Exception as exc:
+        print(f"WARNING: {label} query failed: {exc}")
+        items = []
+    write_payload(os.path.join(US_DIR, f"{slug}.json"), label, items, "state")
     print(f"{label}: {len(items)} unique headlines")
 
 
 def main():
-    build_national()
+    build_national(JP_NATIONAL_FEEDS, JP_COUNTRY_OUT, "Japan", "Japanese")
     for slug, label, short_name in PREFECTURES:
         build_prefecture(slug, label, short_name)
         time.sleep(0.08)
 
-    print(f"Generated Japan national feed + {len(PREFECTURES)} prefecture feeds")
+    build_national(US_NATIONAL_FEEDS, US_COUNTRY_OUT, "United States", "English")
+    for slug, label in US_STATES:
+        build_state(slug, label)
+        time.sleep(0.08)
+
+    print(f"Generated Japan + {len(PREFECTURES)} prefectures; US + {len(US_STATES)} states")
 
 
 if __name__ == "__main__":
