@@ -4,10 +4,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#05070b" />
-  <meta name="description" content="Explore world news, with a direct Japan prefecture map." />
+  <meta name="description" content="Explore world news with direct Japan prefecture and US state maps." />
   <title>World News Globe</title>
-  <link rel="stylesheet" href="styles.css?v=8" />
+  <link rel="stylesheet" href="styles.css?v=9" />
   <link rel="stylesheet" href="japan-overlay.css?v=3" />
+  <link rel="stylesheet" href="us-overlay.css?v=1" />
 </head>
 <body>
   <div id="app">
@@ -26,6 +27,16 @@
         </div>
         <div class="japan-map-frame">
           <svg id="japanOverlayMap" role="img" aria-label="Interactive map of Japan prefectures"></svg>
+        </div>
+      </div>
+
+      <div id="usOverlay" class="us-overlay hidden">
+        <div class="us-overlay-toolbar">
+          <div id="usOverlayTitle" class="us-overlay-title">美國 · 50 州</div>
+          <button id="usBackWorldBtn" class="us-back-world-btn" type="button">← 返回世界</button>
+        </div>
+        <div class="us-map-frame">
+          <svg id="usOverlayMap" role="img" aria-label="Interactive map of the 50 US states"></svg>
         </div>
       </div>
 
@@ -52,8 +63,9 @@
 
   <script src="https://cdn.jsdelivr.net/npm/globe.gl@2.46.1"></script>
   <script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
-  <script src="app-v2.js?v=8"></script>
-  <script src="news-static.js?v=8"></script>
+  <script src="app-v2.js?v=9"></script>
+  <script src="news-static.js?v=9"></script>
   <script src="japan-overlay.js?v=3"></script>
+  <script src="us-overlay.js?v=1"></script>
 </body>
 </html>
