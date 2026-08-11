@@ -9,13 +9,25 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  overscroll-behavior: contain;
 }
 .japan-overlay.hidden { display: none; }
+.japan-map-frame {
+  position: absolute;
+  inset: 66px 18px 18px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 18px;
+  background: rgba(4,10,16,0.42);
+  touch-action: none;
+}
 #japanOverlayMap {
-  width: min(86%, 760px);
-  height: min(86%, 760px);
+  width: 100%;
+  height: 100%;
   display: block;
-  touch-action: manipulation;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .jp-pref { cursor: pointer; }
 .jp-pref path {
@@ -23,13 +35,13 @@
 }
 .japan-overlay-toolbar {
   position: absolute;
-  top: 22px;
-  left: 24px;
-  right: 24px;
+  top: 16px;
+  left: 18px;
+  right: 18px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   pointer-events: none;
 }
 .japan-overlay-title {
@@ -38,17 +50,46 @@
   letter-spacing: 0.02em;
   pointer-events: none;
 }
-.back-world-btn {
+.japan-toolbar-actions {
+  display: flex;
+  gap: 7px;
   pointer-events: auto;
+}
+.map-zoom-btn,
+.back-world-btn {
   border: 1px solid rgba(255,255,255,0.20);
   border-radius: 999px;
-  padding: 8px 12px;
   color: #f4f7fb;
   background: rgba(5,7,11,0.82);
   backdrop-filter: blur(12px);
   cursor: pointer;
 }
+.map-zoom-btn {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 10px;
+  font-size: 15px;
+}
+.map-reset-btn {
+  font-size: 11px;
+}
+.back-world-btn {
+  padding: 8px 12px;
+}
 @media (max-width: 840px) {
-  .japan-overlay-toolbar { top: calc(14px + env(safe-area-inset-top)); left: 14px; right: 14px; }
-  #japanOverlayMap { width: 94%; height: 88%; }
+  .japan-overlay-toolbar {
+    top: calc(10px + env(safe-area-inset-top));
+    left: 12px;
+    right: 12px;
+  }
+  .japan-map-frame {
+    top: calc(58px + env(safe-area-inset-top));
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    border-radius: 14px;
+  }
+  .japan-overlay-title { font-size: 12px; }
+  .map-zoom-btn { min-width: 32px; height: 32px; padding: 0 8px; }
+  .back-world-btn { padding: 7px 10px; font-size: 11px; }
 }
