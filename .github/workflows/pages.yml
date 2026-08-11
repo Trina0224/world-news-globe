@@ -32,64 +32,65 @@ jobs:
       - name: Validate generated news and map
         run: |
           test -s data/countries/jp.json
+          test -s data/countries/us.json
           test -s data/maps/japan-prefectures.geojson
           python3 - <<'PY'
           import glob, json
 
-          with open('data/countries/jp.json', encoding='utf-8') as f:
-              national = json.load(f)
-          national_count = len(national.get('articles', []))
-          if national_count < 10:
-              raise SystemExit(f'Need at least 10 Japan headlines, got {national_count}')
+          def read(path):
+              with open(path, encoding='utf-8') as f:
+                  return json.load(f)
 
-          files = sorted(glob.glob('data/jp/*.json'))
-          if len(files) != 47:
-              raise SystemExit(f'Expected 47 prefecture files, got {len(files)}')
+          jp = read('data/countries/jp.json')
+          us = read('data/countries/us.json')
+          if len(jp.get('articles', [])) < 10:
+              raise SystemExit('Japan national feed needs at least 10 headlines')
+          if len(us.get('articles', [])) < 10:
+              raise SystemExit('US national feed needs at least 10 headlines')
 
-          with open('data/maps/japan-prefectures.geojson', encoding='utf-8') as f:
-              pref_map = json.load(f)
+          jp_files = sorted(glob.glob('data/jp/*.json'))
+          us_files = sorted(glob.glob('data/us/*.json'))
+          if len(jp_files) != 47:
+              raise SystemExit(f'Expected 47 prefecture files, got {len(jp_files)}')
+          if len(us_files) != 50:
+              raise SystemExit(f'Expected 50 state files, got {len(us_files)}')
+
+          pref_map = read('data/maps/japan-prefectures.geojson')
           if len(pref_map.get('features', [])) != 47:
               raise SystemExit('Japan map must contain 47 prefecture features')
 
-          empty = []
-          total = 0
-          for path in files:
-              with open(path, encoding='utf-8') as f:
-                  data = json.load(f)
-              count = len(data.get('articles', []))
-              total += count
-              if count == 0:
-                  empty.append(path)
-
           def titles(path):
-              with open(path, encoding='utf-8') as f:
-                  data = json.load(f)
-              return [a.get('title','').strip() for a in data.get('articles', [])[:10] if a.get('title')]
-
-          tokyo = titles('data/jp/tokyo.json')
-          osaka = titles('data/jp/osaka.json')
-          hokkaido = titles('data/jp/hokkaido.json')
-          if not tokyo or not osaka or not hokkaido:
-              raise SystemExit('Tokyo/Osaka/Hokkaido feeds must all contain headlines')
+              return [a.get('title','').strip() for a in read(path).get('articles', [])[:10] if a.get('title')]
 
           def overlap(a, b):
               sa, sb = set(a), set(b)
               return len(sa & sb) / max(1, min(len(sa), len(sb)))
 
-          overlaps = {
-              'Tokyo-Osaka': overlap(tokyo, osaka),
-              'Tokyo-Hokkaido': overlap(tokyo, hokkaido),
-              'Osaka-Hokkaido': overlap(osaka, hokkaido),
+          tokyo, osaka, hokkaido = titles('data/jp/tokyo.json'), titles('data/jp/osaka.json'), titles('data/jp/hokkaido.json')
+          if not tokyo or not osaka or not hokkaido:
+              raise SystemExit('Tokyo/Osaka/Hokkaido feeds must contain headlines')
+          if max(overlap(tokyo, osaka), overlap(tokyo, hokkaido), overlap(osaka, hokkaido)) >= 0.8:
+              raise SystemExit('Japan prefecture feeds are too similar')
+
+          california, texas, new_york = titles('data/us/california.json'), titles('data/us/texas.json'), titles('data/us/new-york.json')
+          if not california or not texas or not new_york:
+              raise SystemExit('California/Texas/New York feeds must contain headlines')
+          us_overlaps = {
+              'CA-TX': overlap(california, texas),
+              'CA-NY': overlap(california, new_york),
+              'TX-NY': overlap(texas, new_york),
           }
-          print('Japan national headlines:', national_count)
-          print('Prefecture feeds:', len(files))
-          print('Prefecture headlines total:', total)
-          print('Japan map prefectures:', len(pref_map.get('features', [])))
-          print('Sample overlaps:', overlaps)
-          if any(v >= 0.8 for v in overlaps.values()):
-              raise SystemExit(f'Prefecture feeds are too similar: {overlaps}')
-          if empty:
-              print('WARNING: empty prefecture feeds:', ', '.join(empty))
+          if any(v >= 0.8 for v in us_overlaps.values()):
+              raise SystemExit(f'US state feeds are too similar: {us_overlaps}')
+
+          empty_us = [p for p in us_files if not read(p).get('articles')]
+          print('Japan national:', len(jp.get('articles', [])))
+          print('Japan prefectures:', len(jp_files))
+          print('US national:', len(us.get('articles', [])))
+          print('US states:', len(us_files))
+          print('US sample overlaps:', us_overlaps)
+          if empty_us:
+              print('WARNING: empty US state feeds:', ', '.join(empty_us))
           PY
       - name: Setup Pages
         uses: actions/configure-pages@v5
