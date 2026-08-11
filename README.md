@@ -25,3 +25,5 @@ The expected site URL is:
 ## Notes
 
 Regional filtering is query-based. A state or prefecture selection searches recent local references within the selected country's news rather than relying on a dedicated state/prefecture news API.
+
+Deployment trigger refreshed after enabling GitHub Pages.
