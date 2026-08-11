@@ -4,36 +4,33 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#05070b" />
-  <meta name="description" content="Explore today's news by spinning the globe." />
-  <title>World News Globe</title>
-  <link rel="stylesheet" href="styles.css" />
+  <meta name="description" content="Explore Japan news by prefecture." />
+  <title>Japan News Map</title>
+  <link rel="stylesheet" href="styles.css?v=7" />
 </head>
 <body>
   <div id="app">
-    <div id="globe-wrap">
-      <div id="globe" aria-label="Interactive world globe"></div>
-      <div class="brand"><div class="eyebrow">NEWS · CACHED</div><div class="brand-title">WORLD NEWS GLOBE</div></div>
-      <div class="hint" id="globeHint">拖曳旋轉 · 滾輪縮放 · 輕點國家</div>
-      <div class="globe-status" id="globeStatus">Loading world…</div>
+    <div id="globe-wrap" class="map-wrap">
+      <svg id="japanMap" role="img" aria-label="Interactive map of Japan prefectures"></svg>
+      <div class="brand"><div class="eyebrow">NEWS · JAPAN</div><div class="brand-title">JAPAN NEWS MAP</div></div>
+      <div class="hint" id="globeHint">直接點地圖上的都道府縣</div>
+      <div class="globe-status" id="globeStatus">Loading Japan…</div>
     </div>
     <aside id="panel">
       <div class="panel-topbar">
-        <div><div class="eyebrow" id="locationType">WORLD</div><h1 id="locationName">選一個國家</h1></div>
+        <div><div class="eyebrow" id="locationType">日本新聞地圖</div><h1 id="locationName">日本</h1></div>
         <div class="language-switch" role="group" aria-label="Language">
           <button type="button" data-lang="zh-Hant" class="active">繁中</button><button type="button" data-lang="en">EN</button><button type="button" data-lang="ja">日本語</button>
         </div>
       </div>
       <div class="meta-row"><span id="localTime">—</span><span class="dot">•</span><span id="newsWindow">最近 24 小時</span></div>
-      <div id="regionControls" class="region-controls hidden"><label for="regionSelect" id="regionLabel">地區</label><select id="regionSelect"><option value="">全部</option></select></div>
+      <div id="regionControls" class="region-controls"><label for="regionSelect" id="regionLabel">都道府縣</label><select id="regionSelect"><option value="">全部</option></select></div>
       <div class="section-title-row"><h2 id="headlineLabel">今日新聞</h2><button type="button" id="refreshBtn" class="icon-btn" title="Refresh">↻</button></div>
-      <div id="newsState" class="news-state"><div class="orb"></div><p id="emptyMessage">轉動地球，輕點一個國家看看今天發生什麼。</p></div>
+      <div id="newsState" class="news-state"><div class="orb"></div><p id="emptyMessage">正在讀取最新新聞…</p></div>
       <ol id="newsList" class="news-list" aria-live="polite"></ol>
       <div class="panel-footer"><span id="sourceNote">新聞來源：Google News RSS；由 GitHub Actions 定期更新。</span><a href="https://news.google.com/" target="_blank" rel="noreferrer">Google News ↗</a></div>
     </aside>
   </div>
-  <script src="https://cdn.jsdelivr.net/npm/globe.gl@2.46.1"></script>
-  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
-  <script src="app-v2.js?v=6"></script>
-  <script src="news-static.js?v=6"></script>
+  <script src="app-japan.js?v=1"></script>
 </body>
 </html>
