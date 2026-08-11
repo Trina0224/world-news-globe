@@ -25,14 +25,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Fetch Google News RSS
+      - name: Fetch Japan and US news
         run: python3 scripts/fetch_news.py
+      - name: Fetch world country news
+        run: python3 scripts/fetch_world_news.py
       - name: Build Japan prefecture map
         run: python3 scripts/fetch_japan_map.py
       - name: Validate generated news and map
         run: |
           test -s data/countries/jp.json
           test -s data/countries/us.json
+          test -s data/world.json
           test -s data/maps/japan-prefectures.geojson
           python3 - <<'PY'
           import glob, json
@@ -43,10 +46,21 @@ jobs:
 
           jp = read('data/countries/jp.json')
           us = read('data/countries/us.json')
+          world = read('data/world.json')
           if len(jp.get('articles', [])) < 10:
               raise SystemExit('Japan national feed needs at least 10 headlines')
           if len(us.get('articles', [])) < 10:
               raise SystemExit('US national feed needs at least 10 headlines')
+
+          world_countries = world.get('countries', {})
+          if len(world_countries) < 160:
+              raise SystemExit(f'World cache has too few countries: {len(world_countries)}')
+          nonempty = sum(1 for value in world_countries.values() if value.get('articles'))
+          if nonempty < 145:
+              raise SystemExit(f'World cache has too few non-empty countries: {nonempty}')
+          taiwan = world_countries.get('Taiwan', {}).get('articles', [])
+          if len(taiwan) < 10:
+              raise SystemExit(f'Taiwan feed needs at least 10 headlines, got {len(taiwan)}')
 
           jp_files = sorted(glob.glob('data/jp/*.json'))
           us_files = sorted(glob.glob('data/us/*.json'))
@@ -83,14 +97,14 @@ jobs:
           if any(v >= 0.8 for v in us_overlaps.values()):
               raise SystemExit(f'US state feeds are too similar: {us_overlaps}')
 
-          empty_us = [p for p in us_files if not read(p).get('articles')]
           print('Japan national:', len(jp.get('articles', [])))
           print('Japan prefectures:', len(jp_files))
           print('US national:', len(us.get('articles', [])))
           print('US states:', len(us_files))
+          print('World countries:', len(world_countries))
+          print('World non-empty:', nonempty)
+          print('Taiwan headlines:', len(taiwan))
           print('US sample overlaps:', us_overlaps)
-          if empty_us:
-              print('WARNING: empty US state feeds:', ', '.join(empty_us))
           PY
       - name: Setup Pages
         uses: actions/configure-pages@v5
