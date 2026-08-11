@@ -1,4 +1,4 @@
-// Static-news adapter for Japan + United States cached Google News RSS feeds.
+// Static-news adapter for Japan, United States, and all other globe countries.
 
 strings['zh-Hant'].loading = '正在讀取最新新聞…';
 strings['zh-Hant'].none = '目前找不到這個地區的近期新聞。';
@@ -35,9 +35,11 @@ const US_REGION_SLUGS = Object.fromEntries([
   ['Washington','washington'],['West Virginia','west-virginia'],['Wisconsin','wisconsin'],['Wyoming','wyoming']
 ]);
 
+let worldNewsCache = null;
+
 async function fetchStaticJson(path) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
+  const timeout = setTimeout(() => controller.abort(), 7000);
   try {
     const response = await fetch(`${path}?v=${Date.now()}`, { signal: controller.signal, cache: 'no-store' });
     if (!response.ok) throw new Error(`Static news ${response.status}`);
@@ -45,6 +47,12 @@ async function fetchStaticJson(path) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function getWorldNewsCache() {
+  if (worldNewsCache) return worldNewsCache;
+  worldNewsCache = await fetchStaticJson('data/world.json');
+  return worldNewsCache;
 }
 
 function renderStaticNews(articles) {
@@ -79,21 +87,30 @@ function renderStaticNews(articles) {
 
 fetchNews = async function () {
   if (!state.country) return;
-  let path = null;
-  if (isJapan()) {
-    path = 'data/countries/jp.json';
-    if (state.region && JP_REGION_SLUGS[state.region]) path = `data/jp/${JP_REGION_SLUGS[state.region]}.json`;
-  } else if (isUS()) {
-    path = 'data/countries/us.json';
-    if (state.region && US_REGION_SLUGS[state.region]) path = `data/us/${US_REGION_SLUGS[state.region]}.json`;
-  }
-  if (!path) { setNewsState(t('none')); return; }
   setNewsState(t('loading'), true);
+
   try {
-    const data = await fetchStaticJson(path);
-    renderStaticNews(Array.isArray(data.articles) ? data.articles : []);
+    if (isJapan()) {
+      let path = 'data/countries/jp.json';
+      if (state.region && JP_REGION_SLUGS[state.region]) path = `data/jp/${JP_REGION_SLUGS[state.region]}.json`;
+      const data = await fetchStaticJson(path);
+      renderStaticNews(Array.isArray(data.articles) ? data.articles : []);
+      return;
+    }
+
+    if (isUS()) {
+      let path = 'data/countries/us.json';
+      if (state.region && US_REGION_SLUGS[state.region]) path = `data/us/${US_REGION_SLUGS[state.region]}.json`;
+      const data = await fetchStaticJson(path);
+      renderStaticNews(Array.isArray(data.articles) ? data.articles : []);
+      return;
+    }
+
+    const world = await getWorldNewsCache();
+    const country = world?.countries?.[rawName(state.country)];
+    renderStaticNews(Array.isArray(country?.articles) ? country.articles : []);
   } catch (error) {
-    console.error('Static news load failed', path, error);
+    console.error('Static news load failed', rawName(state.country), error);
     setNewsState(t('error'));
   }
 };
