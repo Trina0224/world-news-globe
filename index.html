@@ -12,7 +12,7 @@
   <div id="app">
     <div id="globe-wrap">
       <div id="globe" aria-label="Interactive world globe"></div>
-      <div class="brand"><div class="eyebrow">LIVE · GDELT</div><div class="brand-title">WORLD NEWS GLOBE</div></div>
+      <div class="brand"><div class="eyebrow">NEWS · CACHED</div><div class="brand-title">WORLD NEWS GLOBE</div></div>
       <div class="hint" id="globeHint">拖曳旋轉 · 滾輪縮放 · 輕點國家</div>
       <div class="globe-status" id="globeStatus">Loading world…</div>
     </div>
@@ -28,11 +28,12 @@
       <div class="section-title-row"><h2 id="headlineLabel">今日新聞</h2><button type="button" id="refreshBtn" class="icon-btn" title="Refresh">↻</button></div>
       <div id="newsState" class="news-state"><div class="orb"></div><p id="emptyMessage">轉動地球，輕點一個國家看看今天發生什麼。</p></div>
       <ol id="newsList" class="news-list" aria-live="polite"></ol>
-      <div class="panel-footer"><span id="sourceNote">新聞來源：GDELT Context。搜尋文章中實際提到的地點。</span><a href="https://www.gdeltproject.org/" target="_blank" rel="noreferrer">GDELT ↗</a></div>
+      <div class="panel-footer"><span id="sourceNote">新聞來源：Google News RSS；由 GitHub Actions 定期更新。</span><a href="https://news.google.com/" target="_blank" rel="noreferrer">Google News ↗</a></div>
     </aside>
   </div>
   <script src="https://cdn.jsdelivr.net/npm/globe.gl@2.46.1"></script>
   <script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
   <script src="app-v2.js"></script>
+  <script src="news-static.js"></script>
 </body>
 </html>
