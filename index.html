@@ -7,7 +7,7 @@
   <meta name="description" content="Explore world news, with a direct Japan prefecture map." />
   <title>World News Globe</title>
   <link rel="stylesheet" href="styles.css?v=8" />
-  <link rel="stylesheet" href="japan-overlay.css?v=2" />
+  <link rel="stylesheet" href="japan-overlay.css?v=3" />
 </head>
 <body>
   <div id="app">
@@ -17,9 +17,16 @@
       <div id="japanOverlay" class="japan-overlay hidden">
         <div class="japan-overlay-toolbar">
           <div id="japanOverlayTitle" class="japan-overlay-title">日本 · 47 都道府縣</div>
-          <button id="backWorldBtn" class="back-world-btn" type="button">← 返回世界</button>
+          <div class="japan-toolbar-actions">
+            <button id="japanZoomOut" class="map-zoom-btn" type="button" aria-label="Zoom out">−</button>
+            <button id="japanZoomReset" class="map-zoom-btn map-reset-btn" type="button">Reset</button>
+            <button id="japanZoomIn" class="map-zoom-btn" type="button" aria-label="Zoom in">+</button>
+            <button id="backWorldBtn" class="back-world-btn" type="button">← 返回世界</button>
+          </div>
         </div>
-        <svg id="japanOverlayMap" role="img" aria-label="Interactive map of Japan prefectures"></svg>
+        <div class="japan-map-frame">
+          <svg id="japanOverlayMap" role="img" aria-label="Interactive map of Japan prefectures"></svg>
+        </div>
       </div>
 
       <div class="brand"><div class="eyebrow">NEWS · CACHED</div><div class="brand-title">WORLD NEWS GLOBE</div></div>
@@ -47,6 +54,6 @@
   <script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
   <script src="app-v2.js?v=8"></script>
   <script src="news-static.js?v=8"></script>
-  <script src="japan-overlay.js?v=2"></script>
+  <script src="japan-overlay.js?v=3"></script>
 </body>
 </html>
