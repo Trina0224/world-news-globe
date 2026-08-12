@@ -9,9 +9,11 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  overscroll-behavior: contain;
+  overscroll-behavior: none;
+  contain: layout paint;
 }
 .japan-overlay.hidden { display: none; }
+
 .japan-map-frame {
   position: absolute;
   inset: 66px 18px 18px;
@@ -20,19 +22,26 @@
   border-radius: 18px;
   background: rgba(4,10,16,0.42);
   touch-action: none;
+  overscroll-behavior: none;
+  contain: strict;
+  isolation: isolate;
 }
+
 #japanOverlayMap {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   display: block;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
+
 .jp-pref { cursor: pointer; }
-.jp-pref path {
-  transition: fill 120ms ease, stroke 120ms ease;
-}
+.jp-pref path { transition: fill 120ms ease, stroke 120ms ease; }
+
 .japan-overlay-toolbar {
   position: absolute;
   top: 16px;
@@ -70,12 +79,16 @@
   padding: 0 10px;
   font-size: 15px;
 }
-.map-reset-btn {
-  font-size: 11px;
+.map-reset-btn { font-size: 11px; }
+.back-world-btn { padding: 8px 12px; }
+
+/* Only while a map gesture is active: prevent Safari from scrolling/zooming the page. */
+body.jp-map-gesture-active {
+  overflow: hidden !important;
+  overscroll-behavior: none !important;
+  touch-action: none !important;
 }
-.back-world-btn {
-  padding: 8px 12px;
-}
+
 @media (max-width: 840px) {
   .japan-overlay-toolbar {
     top: calc(10px + env(safe-area-inset-top));
