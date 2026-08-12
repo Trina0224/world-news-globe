@@ -66,8 +66,10 @@ jobs:
           us_files = sorted(glob.glob('data/us/*.json'))
           if len(jp_files) != 47:
               raise SystemExit(f'Expected 47 prefecture files, got {len(jp_files)}')
-          if len(us_files) != 50:
-              raise SystemExit(f'Expected 50 state files, got {len(us_files)}')
+          if len(us_files) != 51:
+              raise SystemExit(f'Expected 51 US region files (50 states + DC), got {len(us_files)}')
+          if 'data/us/district-of-columbia.json' not in us_files:
+              raise SystemExit('District of Columbia news file is missing')
 
           pref_map = read('data/maps/japan-prefectures.geojson')
           if len(pref_map.get('features', [])) != 47:
@@ -100,7 +102,7 @@ jobs:
           print('Japan national:', len(jp.get('articles', [])))
           print('Japan prefectures:', len(jp_files))
           print('US national:', len(us.get('articles', [])))
-          print('US states:', len(us_files))
+          print('US regions (50 states + DC):', len(us_files))
           print('World countries:', len(world_countries))
           print('World non-empty:', nonempty)
           print('Taiwan headlines:', len(taiwan))
