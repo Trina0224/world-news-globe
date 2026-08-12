@@ -1,4 +1,4 @@
-const CACHE_NAME = 'world-news-globe-v1';
+const CACHE_NAME = 'world-news-globe-v2';
 const SHELL = [
   './',
   './index.html',
@@ -34,12 +34,13 @@ self.addEventListener('fetch', event => {
   if (url.origin !== self.location.origin) return;
 
   if (url.pathname.includes('/data/')) {
+    const canonical = new Request(url.origin + url.pathname, { method: 'GET' });
     event.respondWith(
       fetch(request).then(response => {
         const copy = response.clone();
-        caches.open(CACHE_NAME).then(cache => cache.put(request, copy));
+        caches.open(CACHE_NAME).then(cache => cache.put(canonical, copy));
         return response;
-      }).catch(() => caches.match(request))
+      }).catch(() => caches.match(canonical))
     );
     return;
   }
@@ -49,5 +50,5 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  event.respondWith(caches.match(request).then(hit => hit || fetch(request)));
+  event.respondWith(caches.match(request, { ignoreSearch: true }).then(hit => hit || fetch(request)));
 });
