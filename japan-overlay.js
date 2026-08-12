@@ -1,4 +1,4 @@
-// Stable hybrid mode: keep the 3D globe alive underneath a separate 2D SVG Japan map.
+// Hybrid Japan mode: keep the 3D globe alive underneath a fixed 2D SVG viewport.
 const JAPAN_OVERLAY_MAP = 'data/maps/japan-prefectures.geojson';
 const japanOverlay = {
   active: false,
@@ -11,11 +11,13 @@ const japanOverlay = {
   pointers: new Map(),
   dragStart: null,
   pinchStart: null,
-  contentGroup: null
+  contentGroup: null,
+  suppressClickUntil: 0
 };
 
 const overlayEl = document.getElementById('japanOverlay');
 const overlaySvg = document.getElementById('japanOverlayMap');
+const mapFrame = document.querySelector('.japan-map-frame');
 const backWorldBtn = document.getElementById('backWorldBtn');
 const overlayTitle = document.getElementById('japanOverlayTitle');
 const zoomInBtn = document.getElementById('japanZoomIn');
@@ -26,11 +28,15 @@ const JP_FILL = 'rgba(55, 96, 122, 0.82)';
 const JP_STROKE = 'rgba(222, 238, 248, 0.92)';
 const JP_SELECTED = 'rgba(111, 211, 255, 0.95)';
 const JP_SELECTED_STROKE = 'rgba(255,255,255,1)';
+const MAP_SIZE = 900;
+const MAP_CENTER = MAP_SIZE / 2;
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 15;
 
 function overlayText() {
-  if (state.lang === 'en') return { title: 'Japan · 47 Prefectures', back: '← World', status: 'Pinch or use + / − to zoom' };
-  if (state.lang === 'ja') return { title: '日本 · 47都道府県', back: '← 世界へ', status: 'ピンチまたは + / − で拡大' };
-  return { title: '日本 · 47 都道府縣', back: '← 返回世界', status: '雙指或 + / − 放大 · 拖曳移動' };
+  if (state.lang === 'en') return { title: 'Japan · 47 Prefectures', back: '← World', status: 'Pinch to zoom · drag to move' };
+  if (state.lang === 'ja') return { title: '日本 · 47都道府県', back: '← 世界へ', status: 'ピンチで拡大 · ドラッグで移動' };
+  return { title: '日本 · 47 都道府縣', back: '← 返回世界', status: '雙指放大 · 拖曳移動' };
 }
 
 function updateOverlayText() {
@@ -58,30 +64,33 @@ function paintPrefecture(group, selected) {
 }
 
 function clampZoom(v) {
-  return Math.max(1, Math.min(8, v));
+  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, v));
+}
+
+function clampPan() {
+  const z = japanOverlay.zoom;
+  const limit = MAP_CENTER * (z - 1);
+  japanOverlay.panX = Math.max(-limit, Math.min(limit, japanOverlay.panX));
+  japanOverlay.panY = Math.max(-limit, Math.min(limit, japanOverlay.panY));
 }
 
 function applyMapTransform() {
   if (!japanOverlay.contentGroup) return;
-  const z = japanOverlay.zoom;
-  const limit = 450 * (z - 1);
-  japanOverlay.panX = Math.max(-limit, Math.min(limit, japanOverlay.panX));
-  japanOverlay.panY = Math.max(-limit, Math.min(limit, japanOverlay.panY));
+  clampPan();
   japanOverlay.contentGroup.setAttribute(
     'transform',
-    `translate(${japanOverlay.panX} ${japanOverlay.panY}) translate(450 450) scale(${z}) translate(-450 -450)`
+    `translate(${japanOverlay.panX} ${japanOverlay.panY}) translate(${MAP_CENTER} ${MAP_CENTER}) scale(${japanOverlay.zoom}) translate(${-MAP_CENTER} ${-MAP_CENTER})`
   );
 }
 
-function setMapZoom(nextZoom, anchorX = 450, anchorY = 450) {
+function setMapZoom(nextZoom, anchorX = MAP_CENTER, anchorY = MAP_CENTER) {
   const oldZoom = japanOverlay.zoom;
   const newZoom = clampZoom(nextZoom);
-  if (newZoom === oldZoom) return;
+  if (Math.abs(newZoom - oldZoom) < 0.0001) return;
 
-  // Keep the point under the user's fingers/cursor approximately stationary.
   const ratio = newZoom / oldZoom;
-  japanOverlay.panX = anchorX - 450 - (anchorX - 450 - japanOverlay.panX) * ratio;
-  japanOverlay.panY = anchorY - 450 - (anchorY - 450 - japanOverlay.panY) * ratio;
+  japanOverlay.panX = anchorX - MAP_CENTER - (anchorX - MAP_CENTER - japanOverlay.panX) * ratio;
+  japanOverlay.panY = anchorY - MAP_CENTER - (anchorY - MAP_CENTER - japanOverlay.panY) * ratio;
   japanOverlay.zoom = newZoom;
   applyMapTransform();
 }
@@ -93,14 +102,15 @@ function resetMapView() {
   japanOverlay.pointers.clear();
   japanOverlay.dragStart = null;
   japanOverlay.pinchStart = null;
+  document.body.classList.remove('jp-map-gesture-active');
   applyMapTransform();
 }
 
 function clientToSvg(clientX, clientY) {
-  const rect = overlaySvg.getBoundingClientRect();
+  const rect = mapFrame.getBoundingClientRect();
   return {
-    x: ((clientX - rect.left) / Math.max(1, rect.width)) * 900,
-    y: ((clientY - rect.top) / Math.max(1, rect.height)) * 900
+    x: ((clientX - rect.left) / Math.max(1, rect.width)) * MAP_SIZE,
+    y: ((clientY - rect.top) / Math.max(1, rect.height)) * MAP_SIZE
   };
 }
 
@@ -113,14 +123,16 @@ function renderJapanOverlay(features) {
   const lats = pts.map(p => p[1]);
   const minLon = Math.min(...lons), maxLon = Math.max(...lons);
   const minLat = Math.min(...lats), maxLat = Math.max(...lats);
-  const W = 900, H = 900, pad = 54;
+  const W = MAP_SIZE, H = MAP_SIZE, pad = 54;
   const scale = Math.min((W - pad * 2) / (maxLon - minLon), (H - pad * 2) / (maxLat - minLat));
   const x0 = (W - (maxLon - minLon) * scale) / 2;
   const y0 = (H - (maxLat - minLat) * scale) / 2;
   const project = p => [x0 + (p[0] - minLon) * scale, H - (y0 + (p[1] - minLat) * scale)];
 
   overlaySvg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  overlaySvg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
   overlaySvg.innerHTML = '';
+
   const root = document.createElementNS('http://www.w3.org/2000/svg', 'g');
   japanOverlay.contentGroup = root;
   overlaySvg.appendChild(root);
@@ -147,7 +159,7 @@ function renderJapanOverlay(features) {
 
     paintPrefecture(group, false);
     group.addEventListener('click', e => {
-      if (japanOverlay.dragStart?.moved) return;
+      if (performance.now() < japanOverlay.suppressClickUntil) return;
       e.stopPropagation();
       choosePrefecture(f.properties.value);
     });
@@ -163,6 +175,7 @@ function renderJapanOverlay(features) {
     });
     root.appendChild(group);
   }
+
   resetMapView();
   syncOverlaySelection();
 }
@@ -170,7 +183,7 @@ function renderJapanOverlay(features) {
 async function ensureJapanOverlay() {
   if (japanOverlay.loaded) return true;
   try {
-    const r = await fetch(`${JAPAN_OVERLAY_MAP}?v=4`, { cache: 'force-cache' });
+    const r = await fetch(`${JAPAN_OVERLAY_MAP}?v=5`, { cache: 'force-cache' });
     if (!r.ok) throw new Error(`Japan map ${r.status}`);
     const data = await r.json();
     japanOverlay.features = Array.isArray(data.features) ? data.features : [];
@@ -220,6 +233,7 @@ function exitJapanOverlay() {
   if (!japanOverlay.active) return;
   japanOverlay.active = false;
   overlayEl.classList.add('hidden');
+  document.body.classList.remove('jp-map-gesture-active');
   state.region = '';
   state.country = null;
   refreshPolygonColors();
@@ -233,52 +247,87 @@ function exitJapanOverlay() {
   ui.globeStatus.textContent = `${state.countries.length} countries`;
 }
 
-zoomInBtn?.addEventListener('click', () => setMapZoom(japanOverlay.zoom * 1.5));
-zoomOutBtn?.addEventListener('click', () => setMapZoom(japanOverlay.zoom / 1.5));
+zoomInBtn?.addEventListener('click', () => setMapZoom(japanOverlay.zoom * 1.6));
+zoomOutBtn?.addEventListener('click', () => setMapZoom(japanOverlay.zoom / 1.6));
 zoomResetBtn?.addEventListener('click', resetMapView);
 backWorldBtn.addEventListener('click', exitJapanOverlay);
 
-// Wheel zoom stays inside the fixed map frame and never changes page size.
-overlaySvg.addEventListener('wheel', e => {
+mapFrame.addEventListener('wheel', e => {
   if (!japanOverlay.active) return;
   e.preventDefault();
+  e.stopPropagation();
   const p = clientToSvg(e.clientX, e.clientY);
-  setMapZoom(japanOverlay.zoom * (e.deltaY < 0 ? 1.18 : 0.85), p.x, p.y);
+  setMapZoom(japanOverlay.zoom * (e.deltaY < 0 ? 1.2 : 0.84), p.x, p.y);
 }, { passive: false });
 
-overlaySvg.addEventListener('pointerdown', e => {
+function beginGestureLock() {
+  document.body.classList.add('jp-map-gesture-active');
+}
+function endGestureLockIfIdle() {
+  if (japanOverlay.pointers.size === 0) document.body.classList.remove('jp-map-gesture-active');
+}
+
+mapFrame.addEventListener('pointerdown', e => {
   if (!japanOverlay.active) return;
   e.preventDefault();
-  overlaySvg.setPointerCapture?.(e.pointerId);
+  e.stopPropagation();
+  beginGestureLock();
+  mapFrame.setPointerCapture?.(e.pointerId);
   japanOverlay.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
   if (japanOverlay.pointers.size === 1) {
-    japanOverlay.dragStart = { x: e.clientX, y: e.clientY, panX: japanOverlay.panX, panY: japanOverlay.panY, moved: false };
+    japanOverlay.dragStart = {
+      x: e.clientX,
+      y: e.clientY,
+      panX: japanOverlay.panX,
+      panY: japanOverlay.panY,
+      moved: false
+    };
+    japanOverlay.pinchStart = null;
   } else if (japanOverlay.pointers.size === 2) {
     const pts = [...japanOverlay.pointers.values()];
-    const dx = pts[1].x - pts[0].x, dy = pts[1].y - pts[0].y;
+    const dx = pts[1].x - pts[0].x;
+    const dy = pts[1].y - pts[0].y;
     const mid = clientToSvg((pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2);
-    japanOverlay.pinchStart = { distance: Math.hypot(dx, dy), zoom: japanOverlay.zoom, mid };
+    japanOverlay.pinchStart = {
+      distance: Math.max(1, Math.hypot(dx, dy)),
+      zoom: japanOverlay.zoom,
+      panX: japanOverlay.panX,
+      panY: japanOverlay.panY,
+      mid
+    };
+    japanOverlay.dragStart = null;
   }
 });
 
-overlaySvg.addEventListener('pointermove', e => {
+mapFrame.addEventListener('pointermove', e => {
   if (!japanOverlay.pointers.has(e.pointerId)) return;
   e.preventDefault();
+  e.stopPropagation();
   japanOverlay.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
   if (japanOverlay.pointers.size >= 2 && japanOverlay.pinchStart) {
     const pts = [...japanOverlay.pointers.values()].slice(0, 2);
-    const distance = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
-    const next = japanOverlay.pinchStart.zoom * (distance / Math.max(1, japanOverlay.pinchStart.distance));
-    setMapZoom(next, japanOverlay.pinchStart.mid.x, japanOverlay.pinchStart.mid.y);
+    const distance = Math.max(1, Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y));
+    const nextZoom = japanOverlay.pinchStart.zoom * (distance / japanOverlay.pinchStart.distance);
+
+    // Recalculate from the gesture's original pan so zoom stays anchored under the fingers.
+    japanOverlay.zoom = japanOverlay.pinchStart.zoom;
+    japanOverlay.panX = japanOverlay.pinchStart.panX;
+    japanOverlay.panY = japanOverlay.pinchStart.panY;
+    setMapZoom(nextZoom, japanOverlay.pinchStart.mid.x, japanOverlay.pinchStart.mid.y);
+    japanOverlay.suppressClickUntil = performance.now() + 350;
     return;
   }
 
   if (japanOverlay.pointers.size === 1 && japanOverlay.dragStart) {
-    const rect = overlaySvg.getBoundingClientRect();
-    const dx = (e.clientX - japanOverlay.dragStart.x) * 900 / Math.max(1, rect.width);
-    const dy = (e.clientY - japanOverlay.dragStart.y) * 900 / Math.max(1, rect.height);
-    if (Math.abs(dx) + Math.abs(dy) > 4) japanOverlay.dragStart.moved = true;
+    const rect = mapFrame.getBoundingClientRect();
+    const dx = (e.clientX - japanOverlay.dragStart.x) * MAP_SIZE / Math.max(1, rect.width);
+    const dy = (e.clientY - japanOverlay.dragStart.y) * MAP_SIZE / Math.max(1, rect.height);
+    if (Math.abs(dx) + Math.abs(dy) > 5) {
+      japanOverlay.dragStart.moved = true;
+      japanOverlay.suppressClickUntil = performance.now() + 300;
+    }
     japanOverlay.panX = japanOverlay.dragStart.panX + dx;
     japanOverlay.panY = japanOverlay.dragStart.panY + dy;
     applyMapTransform();
@@ -286,17 +335,61 @@ overlaySvg.addEventListener('pointermove', e => {
 });
 
 function releasePointer(e) {
-  japanOverlay.pointers.delete(e.pointerId);
-  if (japanOverlay.pointers.size < 2) japanOverlay.pinchStart = null;
-  if (japanOverlay.pointers.size === 0) {
-    setTimeout(() => { japanOverlay.dragStart = null; }, 0);
-  } else {
-    const p = [...japanOverlay.pointers.values()][0];
-    japanOverlay.dragStart = { x: p.x, y: p.y, panX: japanOverlay.panX, panY: japanOverlay.panY, moved: true };
+  if (japanOverlay.pointers.has(e.pointerId)) {
+    japanOverlay.pointers.delete(e.pointerId);
+    try { mapFrame.releasePointerCapture?.(e.pointerId); } catch (_) {}
   }
+
+  if (japanOverlay.pointers.size >= 2) {
+    const pts = [...japanOverlay.pointers.values()].slice(0, 2);
+    const dx = pts[1].x - pts[0].x;
+    const dy = pts[1].y - pts[0].y;
+    const mid = clientToSvg((pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2);
+    japanOverlay.pinchStart = {
+      distance: Math.max(1, Math.hypot(dx, dy)),
+      zoom: japanOverlay.zoom,
+      panX: japanOverlay.panX,
+      panY: japanOverlay.panY,
+      mid
+    };
+    japanOverlay.dragStart = null;
+  } else if (japanOverlay.pointers.size === 1) {
+    const p = [...japanOverlay.pointers.values()][0];
+    japanOverlay.pinchStart = null;
+    japanOverlay.dragStart = {
+      x: p.x,
+      y: p.y,
+      panX: japanOverlay.panX,
+      panY: japanOverlay.panY,
+      moved: true
+    };
+  } else {
+    japanOverlay.pinchStart = null;
+    japanOverlay.dragStart = null;
+  }
+
+  endGestureLockIfIdle();
 }
-overlaySvg.addEventListener('pointerup', releasePointer);
-overlaySvg.addEventListener('pointercancel', releasePointer);
+
+mapFrame.addEventListener('pointerup', releasePointer);
+mapFrame.addEventListener('pointercancel', releasePointer);
+mapFrame.addEventListener('lostpointercapture', releasePointer);
+
+// iOS Safari can emit proprietary gesture events even when pointer events are handled.
+['gesturestart', 'gesturechange', 'gestureend'].forEach(type => {
+  mapFrame.addEventListener(type, e => {
+    if (!japanOverlay.active) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, { passive: false });
+});
+
+// Extra containment for older iOS Safari: never let a touchmove inside the frame scroll/zoom the page.
+mapFrame.addEventListener('touchmove', e => {
+  if (!japanOverlay.active) return;
+  e.preventDefault();
+  e.stopPropagation();
+}, { passive: false });
 
 ui.regionSelect.addEventListener('change', () => {
   if (japanOverlay.active) setTimeout(syncOverlaySelection, 0);
