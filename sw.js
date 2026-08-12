@@ -1,4 +1,4 @@
-const CACHE_NAME = 'world-news-globe-v2';
+const CACHE_NAME = 'world-news-globe-v3';
 const SHELL = [
   './',
   './index.html',
@@ -9,6 +9,8 @@ const SHELL = [
   './news-static.js',
   './japan-overlay.js',
   './us-overlay.js',
+  './us-dc.js',
+  './language-system.js',
   './client-state.js',
   './manifest.webmanifest',
   './icons/apple-touch-icon.png',
