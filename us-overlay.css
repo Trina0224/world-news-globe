@@ -1,71 +1,7 @@
 .us-overlay {
-  position: absolute;
-  inset: 0;
   z-index: 6;
-  background:
-    radial-gradient(circle at 50% 48%, rgba(31,84,115,0.20), transparent 42%),
-    #071018;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  overscroll-behavior: none;
-  contain: layout paint;
 }
-.us-overlay.hidden { display: none; }
 
-.us-overlay-toolbar {
-  position: absolute;
-  top: 16px;
-  left: 18px;
-  right: 18px;
-  z-index: 2;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  pointer-events: none;
-}
-.us-overlay-title {
-  color: #f4f7fb;
-  font-size: 14px;
-  letter-spacing: 0.02em;
-}
-.us-toolbar-actions {
-  display: flex;
-  gap: 7px;
-  pointer-events: auto;
-}
-.us-map-zoom-btn,
-.us-back-world-btn {
-  border: 1px solid rgba(255,255,255,0.20);
-  border-radius: 999px;
-  color: #f4f7fb;
-  background: rgba(5,7,11,0.82);
-  backdrop-filter: blur(12px);
-  cursor: pointer;
-}
-.us-map-zoom-btn {
-  min-width: 34px;
-  height: 34px;
-  padding: 0 10px;
-  font-size: 15px;
-}
-.us-map-reset-btn { font-size: 11px; }
-.us-back-world-btn { padding: 8px 12px; }
-
-.us-map-frame {
-  position: absolute;
-  inset: 66px 18px 18px;
-  overflow: hidden;
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 18px;
-  background: rgba(5,10,16,0.46);
-  touch-action: none;
-  overscroll-behavior: none;
-  contain: strict;
-  isolation: isolate;
-}
 #usOverlayMap {
   position: absolute;
   inset: 0;
@@ -77,6 +13,7 @@
   -webkit-user-select: none;
   -webkit-touch-callout: none;
 }
+
 .us-state { cursor: pointer; }
 .us-state path {
   fill: rgba(55,96,122,0.82);
@@ -96,22 +33,4 @@ body.us-map-gesture-active {
   overflow: hidden !important;
   overscroll-behavior: none !important;
   touch-action: none !important;
-}
-
-@media (max-width: 840px) {
-  .us-overlay-toolbar {
-    top: calc(10px + env(safe-area-inset-top));
-    left: 12px;
-    right: 12px;
-  }
-  .us-map-frame {
-    top: calc(58px + env(safe-area-inset-top));
-    left: 10px;
-    right: 10px;
-    bottom: 10px;
-    border-radius: 14px;
-  }
-  .us-overlay-title { font-size: 12px; }
-  .us-map-zoom-btn { min-width: 32px; height: 32px; padding: 0 8px; }
-  .us-back-world-btn { padding: 7px 10px; font-size: 11px; }
 }
