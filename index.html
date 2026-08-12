@@ -16,7 +16,7 @@
 
   <link rel="stylesheet" href="styles.css?v=9" />
   <link rel="stylesheet" href="japan-overlay.css?v=4" />
-  <link rel="stylesheet" href="us-overlay.css?v=3" />
+  <link rel="stylesheet" href="us-overlay.css?v=4" />
 </head>
 <body>
   <div id="app">
@@ -38,17 +38,17 @@
         </div>
       </div>
 
-      <div id="usOverlay" class="us-overlay hidden">
-        <div class="us-overlay-toolbar">
-          <div id="usOverlayTitle" class="us-overlay-title">美國 · 50 州</div>
-          <div class="us-toolbar-actions">
-            <button id="usZoomOut" class="us-map-zoom-btn" type="button" aria-label="Zoom out">−</button>
-            <button id="usZoomReset" class="us-map-zoom-btn us-map-reset-btn" type="button">Reset</button>
-            <button id="usZoomIn" class="us-map-zoom-btn" type="button" aria-label="Zoom in">+</button>
-            <button id="usBackWorldBtn" class="us-back-world-btn" type="button">← 返回世界</button>
+      <div id="usOverlay" class="japan-overlay us-overlay hidden">
+        <div class="japan-overlay-toolbar">
+          <div id="usOverlayTitle" class="japan-overlay-title">美國 · 50 州</div>
+          <div class="japan-toolbar-actions">
+            <button id="usZoomOut" class="map-zoom-btn" type="button" aria-label="Zoom out">−</button>
+            <button id="usZoomReset" class="map-zoom-btn map-reset-btn" type="button">Reset</button>
+            <button id="usZoomIn" class="map-zoom-btn" type="button" aria-label="Zoom in">+</button>
+            <button id="usBackWorldBtn" class="back-world-btn" type="button">← 返回世界</button>
           </div>
         </div>
-        <div class="us-map-frame">
+        <div class="japan-map-frame us-map-frame">
           <svg id="usOverlayMap" role="img" aria-label="Interactive map of the 50 US states"></svg>
         </div>
       </div>
@@ -79,6 +79,6 @@
   <script src="app-v2.js?v=9"></script>
   <script src="news-static.js?v=10"></script>
   <script src="japan-overlay.js?v=4"></script>
-  <script src="us-overlay.js?v=3"></script>
+  <script src="us-overlay.js?v=4"></script>
 </body>
 </html>
