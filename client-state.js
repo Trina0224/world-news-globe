@@ -21,7 +21,8 @@
     state.lang = lang;
     ui.languageButtons.forEach(button => button.classList.toggle('active', button.dataset.lang === lang));
     document.documentElement.lang = lang;
-    updateLabels();
+    if (typeof refreshLanguageUI === 'function') refreshLanguageUI();
+    else updateLabels();
   }
 
   function setRegionWhenReady(region) {
@@ -71,7 +72,7 @@
     const name = rawName(state.country);
     if (name) next.searchParams.set('country', name === 'United States of America' ? 'United States' : name);
     if (state.region) next.searchParams.set('region', state.region);
-    if (state.lang !== 'zh-Hant') next.searchParams.set('lang', state.lang);
+    if (state.lang !== 'en') next.searchParams.set('lang', state.lang);
     const key = next.pathname + next.search;
     if (key === lastKey && !force) return;
     lastKey = key;
