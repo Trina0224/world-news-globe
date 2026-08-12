@@ -25,10 +25,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Fetch Japan and US news
-        run: python3 scripts/fetch_news.py
-      - name: Fetch world country news
-        run: python3 scripts/fetch_world_news.py
+      - name: Fetch and rank Japan and US news
+        run: python3 scripts/fetch_news_ranked.py
+      - name: Fetch and rank world country news
+        run: python3 scripts/fetch_world_news_ranked.py
       - name: Build Japan prefecture map
         run: python3 scripts/fetch_japan_map.py
       - name: Validate generated news and map
@@ -37,6 +37,8 @@ jobs:
           test -s data/countries/us.json
           test -s data/world.json
           test -s data/maps/japan-prefectures.geojson
+          test -s manifest.webmanifest
+          test -s sw.js
           python3 - <<'PY'
           import glob, json
 
@@ -99,9 +101,13 @@ jobs:
           if any(v >= 0.8 for v in us_overlaps.values()):
               raise SystemExit(f'US state feeds are too similar: {us_overlaps}')
 
-          print('Japan national:', len(jp.get('articles', [])))
+          for label, payload in [('Japan', jp), ('US', us)]:
+              if payload.get('candidate_count', 0) < len(payload.get('articles', [])):
+                  raise SystemExit(f'{label} ranked feed has invalid candidate_count')
+
+          print('Japan national:', len(jp.get('articles', [])), 'from', jp.get('candidate_count'))
           print('Japan prefectures:', len(jp_files))
-          print('US national:', len(us.get('articles', [])))
+          print('US national:', len(us.get('articles', [])), 'from', us.get('candidate_count'))
           print('US regions (50 states + DC):', len(us_files))
           print('World countries:', len(world_countries))
           print('World non-empty:', nonempty)
