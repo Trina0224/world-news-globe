@@ -2,13 +2,18 @@
 const US_ATLAS_URL = 'https://cdn.jsdelivr.net/npm/us-atlas@3.0.1/states-albers-10m.json';
 
 const US_FIPS = {
-  '01':'Alabama','02':'Alaska','04':'Arizona','05':'Arkansas','06':'California','08':'Colorado','09':'Connecticut','10':'Delaware',
+  '01':'Alabama','02':'Alaska','04':'Arizona','05':'Arkansas','06':'California','08':'Colorado','09':'Connecticut','10':'Delaware','11':'District of Columbia',
   '12':'Florida','13':'Georgia','15':'Hawaii','16':'Idaho','17':'Illinois','18':'Indiana','19':'Iowa','20':'Kansas','21':'Kentucky',
   '22':'Louisiana','23':'Maine','24':'Maryland','25':'Massachusetts','26':'Michigan','27':'Minnesota','28':'Mississippi','29':'Missouri',
   '30':'Montana','31':'Nebraska','32':'Nevada','33':'New Hampshire','34':'New Jersey','35':'New Mexico','36':'New York','37':'North Carolina',
   '38':'North Dakota','39':'Ohio','40':'Oklahoma','41':'Oregon','42':'Pennsylvania','44':'Rhode Island','45':'South Carolina','46':'South Dakota',
   '47':'Tennessee','48':'Texas','49':'Utah','50':'Vermont','51':'Virginia','53':'Washington','54':'West Virginia','55':'Wisconsin','56':'Wyoming'
 };
+
+// app-v2.js keeps the 50 states list; extend it here so the existing dropdown logic also exposes DC.
+if (!US_STATES.includes('District of Columbia')) US_STATES.splice(8, 0, 'District of Columbia');
+// news-static.js is loaded before this file, so its mutable lookup can be extended here as well.
+US_REGION_SLUGS['District of Columbia'] = 'district-of-columbia';
 
 const US_W = 975;
 const US_H = 610;
@@ -42,9 +47,9 @@ const usZoomOutBtn = document.getElementById('usZoomOut');
 const usZoomResetBtn = document.getElementById('usZoomReset');
 
 function usOverlayText() {
-  if (state.lang === 'en') return { title:'United States · 50 States', back:'← World', status:'Pinch to zoom · drag to move' };
-  if (state.lang === 'ja') return { title:'アメリカ · 50州', back:'← 世界へ', status:'ピンチで拡大 · ドラッグで移動' };
-  return { title:'美國 · 50 州', back:'← 返回世界', status:'雙指放大 · 拖曳移動' };
+  if (state.lang === 'en') return { title:'United States · 50 States + DC', back:'← World', status:'Pinch to zoom · drag to move' };
+  if (state.lang === 'ja') return { title:'アメリカ · 50州 + DC', back:'← 世界へ', status:'ピンチで拡大 · ドラッグで移動' };
+  return { title:'美國 · 50 州 + DC', back:'← 返回世界', status:'雙指放大 · 拖曳移動' };
 }
 
 function updateUSOverlayText() {
@@ -163,7 +168,7 @@ function renderUSMap(features) {
       chooseUSState(name);
     });
     group.addEventListener('pointerenter', () => { ui.globeStatus.textContent = name; });
-    group.addEventListener('pointerleave', () => { ui.globeStatus.textContent = 'United States · 50 states'; });
+    group.addEventListener('pointerleave', () => { ui.globeStatus.textContent = 'United States · 50 states + DC'; });
     root.appendChild(group);
   }
 
@@ -179,7 +184,7 @@ async function ensureUSOverlay() {
     const topo = await r.json();
     const collection = topojson.feature(topo, topo.objects.states);
     usOverlayState.features = collection.features.filter(f => US_FIPS[String(f.id).padStart(2,'0')]);
-    if (usOverlayState.features.length !== 50) throw new Error(`Expected 50 states, got ${usOverlayState.features.length}`);
+    if (usOverlayState.features.length !== 51) throw new Error(`Expected 50 states + DC, got ${usOverlayState.features.length} regions`);
     renderUSMap(usOverlayState.features);
     usOverlayState.loaded = true;
     return true;
@@ -201,7 +206,7 @@ async function enterUSOverlay() {
   ui.regionSelect.value = '';
   syncUSSelection();
   updateUSOverlayText();
-  ui.globeStatus.textContent = 'United States · 50 states';
+  ui.globeStatus.textContent = 'United States · 50 states + DC';
 }
 
 function exitUSOverlay() {
