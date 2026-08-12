@@ -49,6 +49,7 @@ PREFECTURES = [
 US_STATES = [
     ("alabama", "Alabama"), ("alaska", "Alaska"), ("arizona", "Arizona"), ("arkansas", "Arkansas"),
     ("california", "California"), ("colorado", "Colorado"), ("connecticut", "Connecticut"), ("delaware", "Delaware"),
+    ("district-of-columbia", "District of Columbia"),
     ("florida", "Florida"), ("georgia", "Georgia"), ("hawaii", "Hawaii"), ("idaho", "Idaho"),
     ("illinois", "Illinois"), ("indiana", "Indiana"), ("iowa", "Iowa"), ("kansas", "Kansas"),
     ("kentucky", "Kentucky"), ("louisiana", "Louisiana"), ("maine", "Maine"), ("maryland", "Maryland"),
@@ -176,6 +177,8 @@ def build_state(slug, label):
         query = '"Georgia" state news when:1d'
     elif label == "Washington":
         query = '"Washington state" news when:1d'
+    elif label == "District of Columbia":
+        query = '"Washington DC" local news when:1d'
     else:
         query = f'"{label}" news when:1d'
     try:
@@ -198,7 +201,7 @@ def main():
         build_state(slug, label)
         time.sleep(0.08)
 
-    print(f"Generated Japan + {len(PREFECTURES)} prefectures; US + {len(US_STATES)} states")
+    print(f"Generated Japan + {len(PREFECTURES)} prefectures; US + {len(US_STATES)} regions (50 states + DC)")
 
 
 if __name__ == "__main__":
