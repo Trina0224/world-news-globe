@@ -2,6 +2,7 @@
   "name": "World News Globe",
   "short_name": "World News",
   "description": "Explore today's news by country, Japanese prefecture, and US state.",
+  "lang": "en",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
