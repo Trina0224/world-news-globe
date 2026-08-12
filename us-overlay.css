@@ -9,18 +9,19 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  overscroll-behavior: contain;
 }
 .us-overlay.hidden { display: none; }
 .us-overlay-toolbar {
   position: absolute;
-  top: 22px;
-  left: 24px;
-  right: 24px;
+  top: 16px;
+  left: 18px;
+  right: 18px;
   z-index: 2;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   pointer-events: none;
 }
 .us-overlay-title {
@@ -28,30 +29,46 @@
   font-size: 14px;
   letter-spacing: 0.02em;
 }
-.us-back-world-btn {
+.us-toolbar-actions {
+  display: flex;
+  gap: 7px;
   pointer-events: auto;
+}
+.us-map-zoom-btn,
+.us-back-world-btn {
   border: 1px solid rgba(255,255,255,0.20);
   border-radius: 999px;
-  padding: 8px 12px;
   color: #f4f7fb;
   background: rgba(5,7,11,0.82);
   backdrop-filter: blur(12px);
   cursor: pointer;
 }
+.us-map-zoom-btn {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 10px;
+  font-size: 15px;
+}
+.us-map-reset-btn { font-size: 11px; }
+.us-back-world-btn { padding: 8px 12px; }
 .us-map-frame {
-  position: relative;
-  width: min(94%, 980px);
-  height: min(82%, 650px);
+  position: absolute;
+  inset: 66px 18px 18px;
   overflow: hidden;
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 18px;
   background: rgba(5,10,16,0.46);
+  touch-action: none;
+  overscroll-behavior: contain;
+  contain: layout paint size;
 }
 #usOverlayMap {
   width: 100%;
   height: 100%;
   display: block;
-  touch-action: manipulation;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .us-state { cursor: pointer; }
 .us-state path {
@@ -72,15 +89,26 @@
   stroke: transparent;
   pointer-events: all;
 }
+html.map-gesture-lock,
+html.map-gesture-lock body {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+  touch-action: none;
+}
 @media (max-width: 840px) {
   .us-overlay-toolbar {
-    top: calc(14px + env(safe-area-inset-top));
-    left: 14px;
-    right: 14px;
+    top: calc(10px + env(safe-area-inset-top));
+    left: 12px;
+    right: 12px;
   }
   .us-map-frame {
-    width: 96%;
-    height: 78%;
-    margin-top: 34px;
+    top: calc(58px + env(safe-area-inset-top));
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    border-radius: 14px;
   }
+  .us-overlay-title { font-size: 12px; }
+  .us-map-zoom-btn { min-width: 32px; height: 32px; padding: 0 8px; }
+  .us-back-world-btn { padding: 7px 10px; font-size: 11px; }
 }
