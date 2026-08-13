@@ -97,10 +97,14 @@ def rank_articles_v2(articles, location_terms=None, limit=10, source_limit=2, re
     clusters=[]
     for item in prepared:
         target=None
-        for c in clusters:
-            if any(same_event(item, other) for other in c): target=c; break
-        (target if target is not None else clusters.append([item]))
-        if target is not None: target.append(item)
+        for cluster in clusters:
+            if any(same_event(item, other) for other in cluster):
+                target=cluster
+                break
+        if target is None:
+            clusters.append([item])
+        else:
+            target.append(item)
 
     reps=[]
     for cluster in clusters:
