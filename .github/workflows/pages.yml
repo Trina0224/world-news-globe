@@ -26,9 +26,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Fetch and rank Japan and US news
-        run: python3 scripts/fetch_news_ranked.py
+        run: python3 scripts/fetch_news_ranked_v2.py
       - name: Fetch and rank world country news
-        run: python3 scripts/fetch_world_news_ranked.py
+        run: python3 scripts/fetch_world_news_ranked_v2.py
       - name: Build Japan prefecture map
         run: python3 scripts/fetch_japan_map.py
       - name: Validate generated news and map
@@ -60,7 +60,8 @@ jobs:
           nonempty = sum(1 for value in world_countries.values() if value.get('articles'))
           if nonempty < 145:
               raise SystemExit(f'World cache has too few non-empty countries: {nonempty}')
-          taiwan = world_countries.get('Taiwan', {}).get('articles', [])
+          taiwan_payload = world_countries.get('Taiwan', {})
+          taiwan = taiwan_payload.get('articles', [])
           if len(taiwan) < 10:
               raise SystemExit(f'Taiwan feed needs at least 10 headlines, got {len(taiwan)}')
 
@@ -90,6 +91,7 @@ jobs:
           if max(overlap(tokyo, osaka), overlap(tokyo, hokkaido), overlap(osaka, hokkaido)) >= 0.8:
               raise SystemExit('Japan prefecture feeds are too similar')
 
+          california_payload = read('data/us/california.json')
           california, texas, new_york = titles('data/us/california.json'), titles('data/us/texas.json'), titles('data/us/new-york.json')
           if not california or not texas or not new_york:
               raise SystemExit('California/Texas/New York feeds must contain headlines')
@@ -101,17 +103,25 @@ jobs:
           if any(v >= 0.8 for v in us_overlaps.values()):
               raise SystemExit(f'US state feeds are too similar: {us_overlaps}')
 
-          for label, payload in [('Japan', jp), ('US', us)]:
-              if payload.get('candidate_count', 0) < len(payload.get('articles', [])):
-                  raise SystemExit(f'{label} ranked feed has invalid candidate_count')
+          if jp.get('ranking') != 'multi-feed-event-v2':
+              raise SystemExit('Japan national did not use ranking v2')
+          if california_payload.get('ranking') != 'multi-feed-event-v2':
+              raise SystemExit('California did not use ranking v2')
+          if taiwan_payload.get('ranking') != 'multi-feed-event-v2':
+              raise SystemExit('Taiwan did not use ranking v2')
+          for label, payload in [('Japan', jp), ('California', california_payload), ('Taiwan', taiwan_payload)]:
+              if payload.get('candidate_count', 0) < 20:
+                  raise SystemExit(f'{label} v2 candidate pool is unexpectedly small: {payload.get("candidate_count")}')
+              if payload.get('source_count', 0) < 3:
+                  raise SystemExit(f'{label} v2 source diversity is unexpectedly low: {payload.get("source_count")}')
 
-          print('Japan national:', len(jp.get('articles', [])), 'from', jp.get('candidate_count'))
+          print('Japan v2:', len(jp.get('articles', [])), 'from', jp.get('candidate_count'), 'candidates /', jp.get('source_count'), 'sources')
+          print('California v2:', len(california_payload.get('articles', [])), 'from', california_payload.get('candidate_count'), 'candidates /', california_payload.get('source_count'), 'sources')
+          print('Taiwan v2:', len(taiwan), 'from', taiwan_payload.get('candidate_count'), 'candidates /', taiwan_payload.get('source_count'), 'sources')
           print('Japan prefectures:', len(jp_files))
-          print('US national:', len(us.get('articles', [])), 'from', us.get('candidate_count'))
           print('US regions (50 states + DC):', len(us_files))
           print('World countries:', len(world_countries))
           print('World non-empty:', nonempty)
-          print('Taiwan headlines:', len(taiwan))
           print('US sample overlaps:', us_overlaps)
           PY
       - name: Setup Pages
