@@ -19,7 +19,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
   <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
 
-  <link rel="stylesheet" href="styles.css?v=9" />
+  <link rel="stylesheet" href="styles.css?v=10" />
   <link rel="stylesheet" href="japan-overlay.css?v=4" />
   <link rel="stylesheet" href="us-overlay.css?v=4" />
 </head>
@@ -72,7 +72,13 @@
       </div>
       <div class="meta-row"><span id="localTime">—</span><span class="dot">•</span><span id="newsWindow">Last 24 hours</span></div>
       <div id="regionControls" class="region-controls hidden"><label for="regionSelect" id="regionLabel">Region</label><select id="regionSelect"><option value="">All</option></select></div>
-      <div class="section-title-row"><h2 id="headlineLabel">Today's news</h2><button type="button" id="refreshBtn" class="icon-btn" title="Refresh">↻</button></div>
+      <div class="section-title-row">
+        <h2 id="headlineLabel">Today's news</h2>
+        <div class="news-actions">
+          <button type="button" id="refreshNowBtn" class="refresh-now-btn hidden">↻ Refresh this area</button>
+          <button type="button" id="refreshBtn" class="icon-btn" title="Reload cached news">↻</button>
+        </div>
+      </div>
       <div id="newsState" class="news-state"><div class="orb"></div><p id="emptyMessage">Spin the globe and tap a country to see what is happening today.</p></div>
       <ol id="newsList" class="news-list" aria-live="polite"></ol>
       <div class="panel-footer"><span id="sourceNote">News source: Google News RSS, refreshed by GitHub Actions.</span><a href="https://news.google.com/" target="_blank" rel="noreferrer">Google News ↗</a></div>
@@ -89,5 +95,6 @@
   <script src="desktop-map-click-fix.js?v=1"></script>
   <script src="language-system.js?v=1"></script>
   <script src="client-state.js?v=2"></script>
+  <script src="live-refresh.js?v=1"></script>
 </body>
 </html>
