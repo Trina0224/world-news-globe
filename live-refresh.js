@@ -2,14 +2,8 @@
   const REFRESH_ENDPOINT = 'https://world-news-refresh.kozakurayuki.workers.dev/refresh';
   const TRANSLATE_ENDPOINT = 'https://world-news-refresh.kozakurayuki.workers.dev/translate';
   const button = document.getElementById('refreshNowBtn');
-  if (!button) return;
-
-  const actions = document.querySelector('.news-actions');
-  const translateButton = document.createElement('button');
-  translateButton.type = 'button';
-  translateButton.id = 'translateHeadlinesBtn';
-  translateButton.className = 'refresh-now-btn hidden';
-  actions?.insertBefore(translateButton, button);
+  const translateButton = document.getElementById('translateHeadlinesBtn');
+  if (!button || !translateButton) return;
 
   const TEXT = {
     en: {
