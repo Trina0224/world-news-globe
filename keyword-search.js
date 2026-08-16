@@ -3,7 +3,6 @@
   const baseFetchNews = fetchNews.bind(window);
   let keyword = String(window.initialWorldNewsKeyword || '').trim().slice(0, 80);
   let requestId = 0;
-  let keywordController = null;
 
   const TEXT = {
     en:{ label:'Keyword', placeholder:'One keyword', apply:'Search', clear:'Clear', searching:'Searching keyword news…', none:'No news found for this keyword in this area.', error:'Keyword search unavailable.', active:'Keyword', try:'Try', examples:['AI','earthquake','World Cup','election'] },
@@ -95,81 +94,48 @@
     return raw==='United States of America'?'United States':raw;
   }
 
-  function abortKeywordRequest(){
-    requestId++;
-    if(keywordController){
-      keywordController.abort();
-      keywordController=null;
-    }
-  }
-
-  function snapshotKey(country,region,word){
-    return `${country}\n${region}\n${word}`;
-  }
-
   async function keywordFetch(){
-    if(!state.country || !keyword){
-      abortKeywordRequest();
-      return baseFetchNews();
-    }
-
-    if(keywordController) keywordController.abort();
-    const controller=new AbortController();
-    keywordController=controller;
+    if(!state.country || !keyword) return baseFetchNews();
     const id=++requestId;
     const c=copy();
-    const country=countryName();
-    const region=japaneseRegion();
-    const word=keyword;
-    const expected=snapshotKey(country,region,word);
-
     setNewsState(c.searching,true);
-    ui.newsWindow.textContent=`${c.active}: ${word}`;
+    ui.newsWindow.textContent=`${c.active}: ${keyword}`;
     ui.globeStatus.textContent=c.searching;
 
-    const timeout=setTimeout(()=>controller.abort(),9000);
     try{
       const response=await fetch(ENDPOINT,{
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({country,region,keyword:word}),
-        signal:controller.signal
+        body:JSON.stringify({country:countryName(),region:japaneseRegion(),keyword})
       });
       const data=await response.json().catch(()=>({}));
-      const current=snapshotKey(countryName(),japaneseRegion(),keyword);
-      if(id!==requestId || expected!==current || controller.signal.aborted) return;
+      if(id!==requestId) return;
       if(!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
 
       if(!Array.isArray(data.articles) || !data.articles.length){
         setNewsState(c.none);
-        ui.globeStatus.textContent=`0 · ${word}`;
+        ui.globeStatus.textContent=`0 · ${keyword}`;
         return;
       }
 
       renderStaticNews(data.articles);
-      ui.globeStatus.textContent=`${data.article_count || data.articles.length} · ${word}`;
+      ui.globeStatus.textContent=`${data.article_count || data.articles.length} · ${keyword}`;
     }catch(error){
-      if(id!==requestId || error?.name==='AbortError') return;
       console.error('Keyword news failed',error);
+      if(id!==requestId) return;
       setNewsState(c.error);
-      ui.newsWindow.textContent=`${c.active}: ${word}`;
+      ui.newsWindow.textContent=`${c.active}: ${keyword}`;
       ui.globeStatus.textContent=c.error;
-    }finally{
-      clearTimeout(timeout);
-      if(keywordController===controller) keywordController=null;
     }
   }
 
   fetchNews = async function(){
     if(keyword) return keywordFetch();
-    abortKeywordRequest();
     return baseFetchNews();
   };
 
   function setKeyword(value){
-    const next=String(value||'').trim().slice(0,80);
-    if(next!==keyword) abortKeywordRequest();
-    keyword=next;
+    keyword=String(value||'').trim().slice(0,80);
     input.value=keyword;
     window.worldNewsKeyword=keyword;
     updateCopy();
@@ -185,7 +151,6 @@
 
   clear.addEventListener('click',()=>{
     setKeyword('');
-    abortKeywordRequest();
     if(state.country) baseFetchNews();
     input.focus();
   });
@@ -202,5 +167,4 @@
 
   setKeyword(keyword);
   window.keywordNewsRefresh=keywordFetch;
-  window.abortKeywordNewsRequest=abortKeywordRequest;
 })();
