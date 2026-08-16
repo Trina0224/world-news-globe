@@ -122,7 +122,7 @@ async function handleTranslate(request, env, origin) {
   }
 }
 
-async function handleKeyword(request, env, origin) {
+async function handleKeyword(request, origin) {
   if (request.method !== 'POST') {
     return json({ ok:false, error:'Use POST /keyword' }, 405, origin);
   }
@@ -133,7 +133,7 @@ async function handleKeyword(request, env, origin) {
     const keyword = String(body?.keyword || '').trim();
     if (!country) return json({ ok:false, error:'country is required' }, 400, origin);
     if (!keyword) return json({ ok:false, error:'keyword is required' }, 400, origin);
-    const result = await keywordSearch(env, country, region, keyword);
+    const result = await keywordSearch(country, region, keyword);
     return json(result, 200, origin);
   } catch (error) {
     return json({ ok:false, error:error?.message || 'Keyword search failed' }, 500, origin);
@@ -156,7 +156,7 @@ export default {
       if (request.method === 'OPTIONS') {
         return new Response(null, { status:204, headers:cors(origin) });
       }
-      return handleKeyword(request, env, origin);
+      return handleKeyword(request, origin);
     }
 
     return refreshApp.fetch(request, env, ctx);
