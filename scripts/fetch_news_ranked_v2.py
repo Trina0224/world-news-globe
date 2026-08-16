@@ -46,12 +46,15 @@ def rebuild_japan_national():
     ],'jp','Japanese')
     ranked=rank_articles_v2(candidates,['日本','国内'],10,2,False)
     if len(ranked)<10:
+        if base.keep_stale(base.JP_COUNTRY_OUT, 'Japan v2.1', f'only {len(ranked)} new headlines', minimum=6):
+            return
         raise RuntimeError(f'Japan v2 produced only {len(ranked)} headlines')
     write(base.JP_COUNTRY_OUT,'Japan','country',candidates,ranked)
     print(f'Japan v2.1: {len(ranked)} from {len(candidates)} candidates')
 
 
 def rebuild_california():
+    path=os.path.join(base.US_DIR,'california.json')
     queries=[
         ('breaking','"California" breaking news when:1d'),
         ('government','"California" governor legislature government when:1d'),
@@ -63,8 +66,10 @@ def rebuild_california():
     candidates=merge_queries(queries,'us','English')
     ranked=rank_articles_v2(candidates,['California'],10,2,True)
     if len(ranked)<6:
+        if base.keep_stale(path, 'California v2.1', f'only {len(ranked)} new headlines', minimum=3):
+            return
         raise RuntimeError(f'California v2 produced only {len(ranked)} headlines')
-    write(os.path.join(base.US_DIR,'california.json'),'California','state',candidates,ranked)
+    write(path,'California','state',candidates,ranked)
     print(f'California v2.1: {len(ranked)} from {len(candidates)} candidates')
 
 
