@@ -66,7 +66,7 @@ function tag(block,name){
 }
 function parseRss(xml,feed,language){
   const out=[];
-  for(const m of xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)){
+  for(const m of xml.matchAll(/<item(?:\s[^>]*)?>([\s\S]*?)<\/item>/gi)){
     const b=m[1], title=tag(b,'title'), url=tag(b,'link');
     if(!title||!url) continue;
     const source=tag(b,'source');
@@ -77,7 +77,7 @@ function parseRss(xml,feed,language){
   return out;
 }
 function norm(s=''){ return s.toLowerCase().normalize('NFKC').replace(/\s+/g,' ').trim(); }
-function searchUrl(q,hl,gl,ceid){ return `${GOOGLE}/search?q=${encodeURIComponent(q)}&hl=${encodeURIComponent(hl)}&gl=${gl}&ceid=${encodeURIComponent(ceid)}`; }
+function searchUrl(q,hl,gl,ceid){ return `${GOOGLE}/search?q=${encodeURIComponent(q)}&hl=${encodeURIComponent(hl)}&gl=${encodeURIComponent(gl)}&ceid=${encodeURIComponent(ceid)}`; }
 function edition(country){ return EDITIONS[country] || [country,'en-US','US','US:en','English']; }
 function sleep(ms){ return new Promise(resolve=>setTimeout(resolve,ms)); }
 
@@ -85,15 +85,20 @@ async function fetchRss(url){
   let lastError=null;
   for(let attempt=0;attempt<4;attempt++){
     try{
-      const response=await fetch(url,{headers:{'User-Agent':'Mozilla/5.0 WorldNewsGlobe/2.0','Accept':'application/rss+xml, application/xml, text/xml, */*'}});
-      if(response.ok) return await response.text();
-      const retryable=[429,500,502,503,504].includes(response.status);
-      lastError=new Error(`Google News ${response.status}`);
+      const response=await fetch(url,{headers:{
+        'User-Agent':'Mozilla/5.0 (compatible; WorldNewsGlobe/2.0)',
+        'Accept':'application/rss+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.5',
+        'Accept-Language':'en-US,en;q=0.8'
+      }});
+      const text=await response.text();
+      if(response.ok && /<rss[\s>]|<feed[\s>]|<item[\s>]/i.test(text)) return text;
+      const retryable=[429,500,502,503,504].includes(response.status) || response.ok;
+      lastError=new Error(response.ok ? 'Google News returned non-RSS content' : `Google News ${response.status}`);
       if(!retryable) throw lastError;
     }catch(error){
       lastError=error;
     }
-    if(attempt<3) await sleep(350*Math.pow(2,attempt)+Math.floor(Math.random()*180));
+    if(attempt<3) await sleep(500*Math.pow(2,attempt)+Math.floor(Math.random()*250));
   }
   throw lastError || new Error('Google News request failed');
 }
@@ -128,8 +133,8 @@ async function keywordVariants(env,keyword,localLanguage){
   const english=await translateKeyword(env,original,source,'en');
   if(english && !variants.some(x=>norm(x)===norm(english))) variants.push(english);
 
-  const localBase = source==='en' ? english : original;
-  const localSource = source==='en' ? 'en' : source;
+  const localBase=source==='en'?english:original;
+  const localSource=source==='en'?'en':source;
   const localTerm=await translateKeyword(env,localBase,localSource,local);
   if(localTerm && !variants.some(x=>norm(x)===norm(localTerm))) variants.push(localTerm);
 
@@ -147,9 +152,24 @@ function score(item,keywords,place){
   return s;
 }
 
+function buildQueries(keywords,region,queryPlace,countryQuery){
+  const out=[];
+  const seen=new Set();
+  for(const term of keywords){
+    const candidates=region
+      ? [`${term} ${queryPlace} when:1d`, `${term} ${queryPlace}`]
+      : [`${term} when:1d`, `${term} ${countryQuery} when:1d`];
+    for(const q of candidates){
+      const key=norm(q);
+      if(!seen.has(key)){ seen.add(key); out.push(q); }
+    }
+  }
+  return out;
+}
+
 export async function keywordSearch(env,country,region,keyword){
   const [countryQuery,hl,gl,ceid,language]=edition(country);
-  const place = region || countryQuery || country;
+  const place=region || countryQuery || country;
   const cleanKeyword=String(keyword||'').trim().slice(0,80);
   if(!cleanKeyword) return {ok:true,country,region,keyword:'',article_count:0,articles:[]};
 
@@ -160,23 +180,29 @@ export async function keywordSearch(env,country,region,keyword){
   }
 
   const keywords=await keywordVariants(env,cleanKeyword,language);
-  const queries=[];
-  for(const term of keywords){
-    if(region){
-      queries.push(`"${term}" "${queryPlace}" when:1d`);
-      queries.push(`${term} ${queryPlace} when:1d`);
-    }else{
-      queries.push(`"${term}" when:1d`);
-      queries.push(`"${term}" ${countryQuery} when:1d`);
+  const queries=buildQueries(keywords,region,queryPlace,countryQuery);
+  const all=[];
+  const diagnostics=[];
+
+  // Google News has recently returned transient 503/non-RSS responses to burst traffic.
+  // Query sequentially and stop once there is a healthy candidate pool.
+  for(let i=0;i<queries.length;i++){
+    const q=queries[i];
+    try{
+      const xml=await fetchRss(searchUrl(q,hl,gl,ceid));
+      const parsed=parseRss(xml,`keyword-${i+1}`,language);
+      diagnostics.push({query:q,ok:true,count:parsed.length});
+      all.push(...parsed);
+      if(all.length>=45) break;
+    }catch(error){
+      diagnostics.push({query:q,ok:false,error:String(error?.message||error)});
     }
+    if(i<queries.length-1) await sleep(180);
   }
 
-  const settled=await Promise.allSettled(queries.map(async(q,i)=>{
-    const xml=await fetchRss(searchUrl(q,hl,gl,ceid));
-    return parseRss(xml,`keyword-${i+1}`,language);
-  }));
-  const all=settled.flatMap(x=>x.status==='fulfilled'?x.value:[]);
-  const failed=settled.filter(x=>x.status==='rejected').length;
+  const successful=diagnostics.filter(x=>x.ok).length;
+  if(!successful) throw new Error('Google News is temporarily unavailable for keyword search');
+
   const seen=new Set();
   const unique=[];
   for(const item of all){
@@ -197,14 +223,11 @@ export async function keywordSearch(env,country,region,keyword){
     if(articles.length>=10) break;
   }
 
-  if(!articles.length && failed===settled.length){
-    throw new Error('Google News is temporarily unavailable for keyword search');
-  }
-
   return {
     ok:true,country,region,keyword:cleanKeyword,keyword_variants:keywords,
     generated_at:new Date().toISOString(),
     source:'Google News RSS via Cloudflare Worker',
-    mode:'keyword-localized',candidate_count:all.length,failed_query_count:failed,article_count:articles.length,articles
+    mode:'keyword-localized-v2',candidate_count:all.length,
+    successful_query_count:successful,article_count:articles.length,articles
   };
 }
