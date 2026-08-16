@@ -1,4 +1,4 @@
-const CACHE_NAME = 'world-news-globe-v5';
+const CACHE_NAME = 'world-news-globe-v6';
 const SHELL = [
   './',
   './index.html',
