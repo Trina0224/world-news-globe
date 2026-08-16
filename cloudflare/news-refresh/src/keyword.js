@@ -1,5 +1,7 @@
 const GOOGLE = 'https://news.google.com/rss';
-const GOOGLE_TIMEOUT_MS = 12000;
+const GOOGLE_ATTEMPT_TIMEOUT_MS = 5200;
+const GOOGLE_MAX_ATTEMPTS = 2;
+const GOOGLE_RETRY_DELAY_MS = 350;
 
 const EDITIONS = {
   Taiwan:['台灣','zh-TW','TW','TW:zh-Hant','Traditional Chinese'],
@@ -73,27 +75,48 @@ function parseRss(xml,feed,language){
 function norm(s=''){ return s.toLowerCase().normalize('NFKC').replace(/\s+/g,' ').trim(); }
 function searchUrl(q,hl,gl,ceid){ return `${GOOGLE}/search?q=${encodeURIComponent(q)}&hl=${encodeURIComponent(hl)}&gl=${gl}&ceid=${encodeURIComponent(ceid)}`; }
 function edition(country){ return EDITIONS[country] || [country,'en-US','US','US:en','English']; }
+function sleep(ms){ return new Promise(resolve=>setTimeout(resolve,ms)); }
+function retryableStatus(status){ return status===429 || status>=500; }
 
-async function fetchFeed(url){
-  const controller=new AbortController();
-  const timeout=setTimeout(()=>controller.abort(),GOOGLE_TIMEOUT_MS);
+async function fetchFeed(url,staggerMs=0){
   const started=Date.now();
-  try{
-    const response=await fetch(url,{
-      headers:{'User-Agent':'WorldNewsGlobe/1.0'},
-      signal:controller.signal
-    });
-    const elapsed_ms=Date.now()-started;
-    if(!response.ok) throw new Error(`Google News HTTP ${response.status} after ${elapsed_ms}ms`);
-    return {xml:await response.text(),status:response.status,elapsed_ms};
-  }catch(error){
-    if(error?.name==='AbortError'){
-      throw new Error(`Google News timeout after ${GOOGLE_TIMEOUT_MS}ms`);
+  let lastError=null;
+
+  for(let attempt=1; attempt<=GOOGLE_MAX_ATTEMPTS; attempt++){
+    if(attempt>1) await sleep(GOOGLE_RETRY_DELAY_MS + staggerMs);
+
+    const controller=new AbortController();
+    const timeout=setTimeout(()=>controller.abort(),GOOGLE_ATTEMPT_TIMEOUT_MS);
+    try{
+      const response=await fetch(url,{
+        headers:{'User-Agent':'WorldNewsGlobe/1.0'},
+        signal:controller.signal
+      });
+      const attemptElapsed=Date.now()-started;
+      if(response.ok){
+        return {
+          xml:await response.text(),
+          status:response.status,
+          elapsed_ms:Date.now()-started,
+          attempts:attempt
+        };
+      }
+
+      lastError=new Error(`Google News HTTP ${response.status} after ${attemptElapsed}ms (attempt ${attempt}/${GOOGLE_MAX_ATTEMPTS})`);
+      if(!retryableStatus(response.status) || attempt===GOOGLE_MAX_ATTEMPTS) throw lastError;
+    }catch(error){
+      if(error?.name==='AbortError'){
+        lastError=new Error(`Google News timeout after ${GOOGLE_ATTEMPT_TIMEOUT_MS}ms (attempt ${attempt}/${GOOGLE_MAX_ATTEMPTS})`);
+      }else{
+        lastError=error;
+      }
+      if(attempt===GOOGLE_MAX_ATTEMPTS) throw lastError;
+    }finally{
+      clearTimeout(timeout);
     }
-    throw error;
-  }finally{
-    clearTimeout(timeout);
   }
+
+  throw lastError || new Error('Google News request failed');
 }
 
 function buildQueries(country,region,keyword){
@@ -117,9 +140,9 @@ export async function keywordDebug(country,region,keyword){
   const started=Date.now();
   const settled=await Promise.allSettled(queries.map(async(q,i)=>{
     const url=searchUrl(q,hl,gl,ceid);
-    const result=await fetchFeed(url);
+    const result=await fetchFeed(url,i*150);
     const articles=parseRss(result.xml,`keyword-${i+1}`,language);
-    return {feed:`keyword-${i+1}`,ok:true,query:q,url,status:result.status,elapsed_ms:result.elapsed_ms,article_count:articles.length};
+    return {feed:`keyword-${i+1}`,ok:true,query:q,url,status:result.status,elapsed_ms:result.elapsed_ms,attempts:result.attempts,article_count:articles.length};
   }));
   const feeds=settled.map((result,index)=>result.status==='fulfilled'
     ? result.value
@@ -151,15 +174,16 @@ export async function keywordSearch(country,region,keyword){
   const {hl,gl,ceid,language,queryPlace,queries}=buildQueries(country,region,cleanKeyword);
 
   const settled=await Promise.allSettled(queries.map(async(q,i)=>{
-    const result=await fetchFeed(searchUrl(q,hl,gl,ceid));
+    const result=await fetchFeed(searchUrl(q,hl,gl,ceid),i*150);
     return {
       articles:parseRss(result.xml,`keyword-${i+1}`,language),
       status:result.status,
-      elapsed_ms:result.elapsed_ms
+      elapsed_ms:result.elapsed_ms,
+      attempts:result.attempts
     };
   }));
   const feed_results=settled.map((result,index)=>result.status==='fulfilled'
-    ? {feed:`keyword-${index+1}`,ok:true,status:result.value.status,elapsed_ms:result.value.elapsed_ms,article_count:result.value.articles.length}
+    ? {feed:`keyword-${index+1}`,ok:true,status:result.value.status,elapsed_ms:result.value.elapsed_ms,attempts:result.value.attempts,article_count:result.value.articles.length}
     : {feed:`keyword-${index+1}`,ok:false,error:String(result.reason?.message||result.reason||'Google News request failed')}
   );
   const successful=settled.filter(result=>result.status==='fulfilled');
