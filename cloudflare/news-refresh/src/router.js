@@ -1,4 +1,5 @@
 import refreshApp from './index.js';
+import { keywordSearch } from './keyword.js';
 
 const ALLOWED_ORIGIN = 'https://trina0224.github.io';
 const TRANSLATION_MODEL = '@cf/meta/m2m100-1.2b';
@@ -121,6 +122,24 @@ async function handleTranslate(request, env, origin) {
   }
 }
 
+async function handleKeyword(request, origin) {
+  if (request.method !== 'POST') {
+    return json({ ok:false, error:'Use POST /keyword' }, 405, origin);
+  }
+  try {
+    const body = await request.json();
+    const country = String(body?.country || '').trim();
+    const region = String(body?.region || '').trim();
+    const keyword = String(body?.keyword || '').trim();
+    if (!country) return json({ ok:false, error:'country is required' }, 400, origin);
+    if (!keyword) return json({ ok:false, error:'keyword is required' }, 400, origin);
+    const result = await keywordSearch(country, region, keyword);
+    return json(result, 200, origin);
+  } catch (error) {
+    return json({ ok:false, error:error?.message || 'Keyword search failed' }, 500, origin);
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const origin = request.headers.get('Origin') || ALLOWED_ORIGIN;
@@ -131,6 +150,13 @@ export default {
         return new Response(null, { status:204, headers:cors(origin) });
       }
       return handleTranslate(request, env, origin);
+    }
+
+    if (url.pathname === '/keyword') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { status:204, headers:cors(origin) });
+      }
+      return handleKeyword(request, origin);
     }
 
     return refreshApp.fetch(request, env, ctx);
