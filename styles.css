@@ -63,10 +63,19 @@ h1 { margin: 5px 0 0; font-size: clamp(28px, 3vw, 40px); line-height: 1.03; lett
 .region-controls select { width: 100%; color: var(--text); background: #101722; border: 1px solid var(--line); border-radius: 10px; padding: 10px 11px; outline: none; }
 .region-controls select:focus { border-color: rgba(111,211,255,0.65); }
 
-.section-title-row { display: flex; justify-content: space-between; align-items: center; margin-top: 25px; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+.section-title-row { display: flex; justify-content: space-between; align-items: center; margin-top: 25px; border-bottom: 1px solid var(--line); padding-bottom: 10px; gap: 12px; }
 h2 { margin: 0; font-size: 13px; letter-spacing: 0.02em; font-weight: 650; }
+.news-actions { display: flex; align-items: center; gap: 8px; }
 .icon-btn { width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 50%; color: var(--muted); background: transparent; cursor: pointer; }
 .icon-btn:hover { color: var(--text); border-color: rgba(255,255,255,0.25); }
+.refresh-now-btn { min-height: 30px; padding: 6px 10px; border: 1px solid rgba(111,211,255,0.32); border-radius: 999px; color: var(--accent); background: var(--accent-soft); cursor: pointer; font-size: 11px; font-weight: 650; white-space: nowrap; }
+.refresh-now-btn:hover { border-color: rgba(111,211,255,0.62); background: rgba(111,211,255,0.18); }
+.refresh-now-btn.hidden { display: none; }
+.refresh-now-btn:disabled { cursor: wait; opacity: 0.72; }
+.refresh-now-btn.loading { animation: refreshPulse 0.9s ease-in-out infinite alternate; }
+.refresh-now-btn.success { border-color: rgba(132,255,183,0.55); color: #9fffc4; }
+.refresh-now-btn.error { border-color: rgba(255,142,142,0.55); color: var(--danger); }
+@keyframes refreshPulse { to { opacity: 0.52; } }
 
 .news-state { min-height: 260px; display: grid; place-items: center; align-content: center; gap: 14px; text-align: center; color: var(--muted); padding: 24px; }
 .news-state.hidden { display: none; }
@@ -103,4 +112,7 @@ h2 { margin: 0; font-size: 13px; letter-spacing: 0.02em; font-weight: 650; }
   .panel-topbar { display: block; }
   .language-switch { width: fit-content; margin-top: 15px; }
   h1 { font-size: 31px; }
+  .section-title-row { align-items: flex-start; }
+  .news-actions { gap: 6px; }
+  .refresh-now-btn { max-width: 150px; white-space: normal; line-height: 1.15; }
 }
