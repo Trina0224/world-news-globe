@@ -1,4 +1,5 @@
 const GOOGLE = 'https://news.google.com/rss';
+const TRANSLATION_MODEL = '@cf/meta/m2m100-1.2b';
 
 const EDITIONS = {
   Taiwan:['台灣','zh-TW','TW','TW:zh-Hant','Traditional Chinese'],
@@ -46,6 +47,12 @@ const EDITIONS = {
   Vietnam:['Việt Nam','vi','VN','VN:vi','Vietnamese']
 };
 
+const LANGUAGE_CODES = {
+  'Traditional Chinese':'zh','Simplified Chinese':'zh','Japanese':'ja','English':'en','Korean':'ko','French':'fr','German':'de',
+  'Italian':'it','Spanish':'es','Portuguese':'pt','Dutch':'nl','Swedish':'sv','Norwegian':'no','Danish':'da','Finnish':'fi',
+  'Polish':'pl','Czech':'cs','Greek':'el','Turkish':'tr','Hebrew':'he','Arabic':'ar','Indonesian':'id','Thai':'th','Vietnamese':'vi'
+};
+
 function decodeXml(text='') {
   return text.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g,'$1')
     .replace(/&#(\d+);/g,(_,n)=>String.fromCodePoint(Number(n)))
@@ -73,10 +80,48 @@ function norm(s=''){ return s.toLowerCase().normalize('NFKC').replace(/\s+/g,' '
 function searchUrl(q,hl,gl,ceid){ return `${GOOGLE}/search?q=${encodeURIComponent(q)}&hl=${encodeURIComponent(hl)}&gl=${gl}&ceid=${encodeURIComponent(ceid)}`; }
 function edition(country){ return EDITIONS[country] || [country,'en-US','US','US:en','English']; }
 
-function score(item,keyword,place){
-  const t=norm(item.title), k=norm(keyword), p=norm(place);
+function detectKeywordLanguage(text){
+  if(/[ぁ-ゟ゠-ヿ]/u.test(text)) return 'ja';
+  if(/[\u4e00-\u9fff]/u.test(text)) return 'zh';
+  if(/[가-힣]/u.test(text)) return 'ko';
+  if(/[؀-ۿ]/u.test(text)) return 'ar';
+  if(/[א-ת]/u.test(text)) return 'he';
+  if(/[ก-๛]/u.test(text)) return 'th';
+  return 'en';
+}
+
+async function translateKeyword(env,text,source_lang,target_lang){
+  if(!env?.AI || !text || !source_lang || !target_lang || source_lang===target_lang) return text;
+  try{
+    const response=await env.AI.run(TRANSLATION_MODEL,{text,source_lang,target_lang});
+    return String(response?.translated_text||'').trim() || text;
+  }catch(error){
+    console.warn('Keyword translation unavailable',source_lang,target_lang,error?.message||error);
+    return text;
+  }
+}
+
+async function keywordVariants(env,keyword,localLanguage){
+  const original=String(keyword||'').trim();
+  const source=detectKeywordLanguage(original);
+  const local=LANGUAGE_CODES[localLanguage] || 'en';
+  const variants=[original];
+
+  const english=await translateKeyword(env,original,source,'en');
+  if(english && !variants.some(x=>norm(x)===norm(english))) variants.push(english);
+
+  const localBase = source==='en' ? english : original;
+  const localSource = source==='en' ? 'en' : source;
+  const localTerm=await translateKeyword(env,localBase,localSource,local);
+  if(localTerm && !variants.some(x=>norm(x)===norm(localTerm))) variants.push(localTerm);
+
+  return variants.slice(0,3);
+}
+
+function score(item,keywords,place){
+  const t=norm(item.title), p=norm(place);
   let s=0;
-  if(k && t.includes(k)) s+=10;
+  if(keywords.some(keyword=>keyword && t.includes(norm(keyword)))) s+=10;
   if(p && t.includes(p)) s+=4;
   const age=Math.max(0,(Date.now()-new Date(item.published).getTime())/3600000)||24;
   s+=Math.max(0,5-age/6);
@@ -84,7 +129,7 @@ function score(item,keyword,place){
   return s;
 }
 
-export async function keywordSearch(country,region,keyword){
+export async function keywordSearch(env,country,region,keyword){
   const [countryQuery,hl,gl,ceid,language]=edition(country);
   const place = region || countryQuery || country;
   const cleanKeyword=String(keyword||'').trim().slice(0,80);
@@ -96,9 +141,17 @@ export async function keywordSearch(country,region,keyword){
     if(region==='Washington') queryPlace='Washington state';
   }
 
-  const queries = region
-    ? [`"${cleanKeyword}" "${queryPlace}" when:1d`, `${cleanKeyword} ${queryPlace} when:1d`]
-    : [`"${cleanKeyword}" when:1d`, `"${cleanKeyword}" ${countryQuery} when:1d`];
+  const keywords=await keywordVariants(env,cleanKeyword,language);
+  const queries=[];
+  for(const term of keywords){
+    if(region){
+      queries.push(`"${term}" "${queryPlace}" when:1d`);
+      queries.push(`${term} ${queryPlace} when:1d`);
+    }else{
+      queries.push(`"${term}" when:1d`);
+      queries.push(`"${term}" ${countryQuery} when:1d`);
+    }
+  }
 
   const settled=await Promise.allSettled(queries.map(async(q,i)=>{
     const r=await fetch(searchUrl(q,hl,gl,ceid),{headers:{'User-Agent':'WorldNewsGlobe/1.0'}});
@@ -112,7 +165,7 @@ export async function keywordSearch(country,region,keyword){
     const key=norm(item.title);
     if(seen.has(key)) continue;
     seen.add(key);
-    unique.push({...item,rank_score:score(item,cleanKeyword,queryPlace)});
+    unique.push({...item,rank_score:score(item,keywords,queryPlace)});
   }
   unique.sort((a,b)=>b.rank_score-a.rank_score);
 
@@ -127,9 +180,9 @@ export async function keywordSearch(country,region,keyword){
   }
 
   return {
-    ok:true,country,region,keyword:cleanKeyword,
+    ok:true,country,region,keyword:cleanKeyword,keyword_variants:keywords,
     generated_at:new Date().toISOString(),
     source:'Google News RSS via Cloudflare Worker',
-    mode:'keyword',candidate_count:all.length,article_count:articles.length,articles
+    mode:'keyword-localized',candidate_count:all.length,article_count:articles.length,articles
   };
 }
