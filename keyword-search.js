@@ -6,9 +6,9 @@
   let requestId = 0;
 
   const TEXT = {
-    en:{ label:'Keyword', placeholder:'One keyword', apply:'Search', clear:'Clear', searching:'Searching keyword news…', none:'No keyword news · showing regular headlines', active:'Keyword' },
-    'zh-Hant':{ label:'關鍵字', placeholder:'輸入一個關鍵字', apply:'搜尋', clear:'清除', searching:'搜尋關鍵字新聞中…', none:'沒有關鍵字新聞 · 顯示一般新聞', active:'關鍵字' },
-    ja:{ label:'キーワード', placeholder:'キーワードを1つ', apply:'検索', clear:'クリア', searching:'キーワードニュースを検索中…', none:'該当ニュースなし · 通常ニュースを表示', active:'キーワード' }
+    en:{ label:'Keyword', placeholder:'One keyword', apply:'Search', clear:'Clear', searching:'Searching keyword news…', none:'No news found for this keyword in this area.', error:'Keyword search unavailable.', active:'Keyword' },
+    'zh-Hant':{ label:'關鍵字', placeholder:'輸入一個關鍵字', apply:'搜尋', clear:'清除', searching:'搜尋關鍵字新聞中…', none:'這個地區目前找不到此關鍵字的新聞。', error:'關鍵字搜尋目前無法使用。', active:'關鍵字' },
+    ja:{ label:'キーワード', placeholder:'キーワードを1つ', apply:'検索', clear:'クリア', searching:'キーワードニュースを検索中…', none:'この地域では、このキーワードのニュースが見つかりません。', error:'キーワード検索を利用できません。', active:'キーワード' }
   };
 
   const root = document.createElement('form');
@@ -84,20 +84,21 @@
       if(id!==requestId) return;
       if(!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
 
+      ui.newsWindow.textContent=`${c.active}: ${keyword}`;
       if(!Array.isArray(data.articles) || !data.articles.length){
-        ui.globeStatus.textContent=c.none;
-        await baseFetchNews();
+        setNewsState(c.none);
+        ui.globeStatus.textContent=`0 · ${keyword}`;
         return;
       }
 
       renderStaticNews(data.articles);
-      ui.newsWindow.textContent=`${c.active}: ${keyword}`;
       ui.globeStatus.textContent=`${data.article_count || data.articles.length} · ${keyword}`;
     }catch(error){
       console.error('Keyword news failed',error);
       if(id!==requestId) return;
-      ui.globeStatus.textContent=c.none;
-      await baseFetchNews();
+      setNewsState(c.error);
+      ui.newsWindow.textContent=`${c.active}: ${keyword}`;
+      ui.globeStatus.textContent=c.error;
     }
   }
 
