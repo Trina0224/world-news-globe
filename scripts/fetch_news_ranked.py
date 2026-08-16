@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import json
 import os
+import random
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -30,9 +32,34 @@ PREFECTURES = [
 US_REGIONS = [
 ("alabama","Alabama"),("alaska","Alaska"),("arizona","Arizona"),("arkansas","Arkansas"),("california","California"),("colorado","Colorado"),("connecticut","Connecticut"),("delaware","Delaware"),("district-of-columbia","District of Columbia"),("florida","Florida"),("georgia","Georgia"),("hawaii","Hawaii"),("idaho","Idaho"),("illinois","Illinois"),("indiana","Indiana"),("iowa","Iowa"),("kansas","Kansas"),("kentucky","Kentucky"),("louisiana","Louisiana"),("maine","Maine"),("maryland","Maryland"),("massachusetts","Massachusetts"),("michigan","Michigan"),("minnesota","Minnesota"),("mississippi","Mississippi"),("missouri","Missouri"),("montana","Montana"),("nebraska","Nebraska"),("nevada","Nevada"),("new-hampshire","New Hampshire"),("new-jersey","New Jersey"),("new-mexico","New Mexico"),("new-york","New York"),("north-carolina","North Carolina"),("north-dakota","North Dakota"),("ohio","Ohio"),("oklahoma","Oklahoma"),("oregon","Oregon"),("pennsylvania","Pennsylvania"),("rhode-island","Rhode Island"),("south-carolina","South Carolina"),("south-dakota","South Dakota"),("tennessee","Tennessee"),("texas","Texas"),("utah","Utah"),("vermont","Vermont"),("virginia","Virginia"),("washington","Washington"),("west-virginia","West Virginia"),("wisconsin","Wisconsin"),("wyoming","Wyoming")]
 
-def fetch(url):
-    req=urllib.request.Request(url,headers={"User-Agent":"Mozilla/5.0 WorldNewsGlobe/2.0","Accept":"application/rss+xml, application/xml, text/xml, */*"})
-    with urllib.request.urlopen(req,timeout=20) as response:return response.read()
+
+def fetch(url, attempts=4):
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 WorldNewsGlobe/2.0",
+            "Accept": "application/rss+xml, application/xml, text/xml, */*",
+        },
+    )
+    last = None
+    for attempt in range(1, attempts + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=20) as response:
+                return response.read()
+        except urllib.error.HTTPError as exc:
+            last = exc
+            # Retry throttling/transient upstream failures, but not permanent 4xx errors.
+            if exc.code not in (429, 500, 502, 503, 504) or attempt == attempts:
+                raise
+        except (urllib.error.URLError, TimeoutError) as exc:
+            last = exc
+            if attempt == attempts:
+                raise
+        delay = min(12.0, 1.5 * (2 ** (attempt - 1))) + random.uniform(0.0, 0.7)
+        print(f"RETRY {attempt}/{attempts} in {delay:.1f}s: {last}")
+        time.sleep(delay)
+    raise last
+
 
 def parse_feed(feed,url,language):
     root=ET.fromstring(fetch(url)); out=[]
@@ -47,14 +74,34 @@ def parse_feed(feed,url,language):
         out.append({"title":title,"url":link,"source":source,"published":published,"language":language,"feed":feed})
     return out
 
+
 def search_url(query,edition):
     if edition=="jp":return f"{BASE}/search?q={urllib.parse.quote(query)}&hl=ja&gl=JP&ceid=JP:ja"
     return f"{BASE}/search?q={urllib.parse.quote(query)}&hl=en-US&gl=US&ceid=US:en"
+
 
 def write_payload(path,location,articles,scope,candidates):
     os.makedirs(os.path.dirname(path),exist_ok=True)
     with open(path,"w",encoding="utf-8") as f:
         json.dump({"location":location,"scope":scope,"source":"Google News RSS","generated_at":datetime.now(timezone.utc).isoformat(),"candidate_count":candidates,"article_count":len(articles),"articles":articles},f,ensure_ascii=False,indent=2);f.write("\n")
+
+
+def existing_article_count(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            payload = json.load(f)
+        return len(payload.get("articles") or [])
+    except Exception:
+        return 0
+
+
+def keep_stale(path, location, reason, minimum=1):
+    count = existing_article_count(path)
+    if count >= minimum:
+        print(f"STALE {location}: keeping existing {count} headlines ({reason})")
+        return True
+    return False
+
 
 def build_national(feeds,path,location,language,terms):
     merged=[]
@@ -62,10 +109,15 @@ def build_national(feeds,path,location,language,terms):
         try: merged.extend(parse_feed(name,url,language))
         except Exception as e: print(f"WARNING {location}/{name}: {e}")
     ranked=rank_articles(merged,terms,10,2)
-    if len(ranked)<10: raise RuntimeError(f"{location}: only {len(ranked)} ranked national headlines")
+    if len(ranked)<10:
+        if keep_stale(path, location, f"only {len(ranked)} new ranked headlines", minimum=6):
+            return
+        raise RuntimeError(f"{location}: only {len(ranked)} ranked national headlines")
     write_payload(path,location,ranked,"country",len(merged));print(f"{location}: {len(ranked)} from {len(merged)} candidates")
 
+
 def build_pref(slug,label,short):
+    path = os.path.join(JP_DIR,slug+".json")
     merged=[]
     queries=[f'"{label}" ニュース when:1d']
     if short!=label:queries.append(f'"{short}" ニュース when:1d')
@@ -74,16 +126,23 @@ def build_pref(slug,label,short):
         except Exception as e:print(f"WARNING {label}: {e}")
         time.sleep(.04)
     ranked=rank_articles(merged,[label,short],10,2)
-    write_payload(os.path.join(JP_DIR,slug+".json"),label,ranked,"prefecture",len(merged));print(f"{label}: {len(ranked)} from {len(merged)}")
+    if not ranked and keep_stale(path, label, "no new prefecture headlines"):
+        return
+    write_payload(path,label,ranked,"prefecture",len(merged));print(f"{label}: {len(ranked)} from {len(merged)}")
+
 
 def build_us(slug,label):
+    path = os.path.join(US_DIR,slug+".json")
     if label=="Georgia": q='"Georgia" state local news when:1d';terms=["Georgia"]
     elif label=="Washington":q='"Washington state" local news when:1d';terms=["Washington state","Washington"]
     elif label=="District of Columbia":q='"Washington DC" local news when:1d';terms=["Washington DC","Washington, D.C.","District of Columbia"]
     else:q=f'"{label}" local news when:1d';terms=[label]
     try:candidates=parse_feed("region",search_url(q,"us"),"English");ranked=rank_articles(candidates,terms,10,2)
     except Exception as e:print(f"WARNING {label}: {e}");candidates=[];ranked=[]
-    write_payload(os.path.join(US_DIR,slug+".json"),label,ranked,"state",len(candidates));print(f"{label}: {len(ranked)} from {len(candidates)}")
+    if not ranked and keep_stale(path, label, "no new state headlines"):
+        return
+    write_payload(path,label,ranked,"state",len(candidates));print(f"{label}: {len(ranked)} from {len(candidates)}")
+
 
 def main():
     build_national(JP_NATIONAL_FEEDS,JP_COUNTRY_OUT,"Japan","Japanese",["日本","国内"])
