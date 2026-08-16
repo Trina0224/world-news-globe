@@ -3,6 +3,8 @@
   const baseFetchNews = fetchNews.bind(window);
   let keyword = String(window.initialWorldNewsKeyword || '').trim().slice(0, 80);
   let requestId = 0;
+  let activeController = null;
+  const REQUEST_TIMEOUT_MS = 15000;
 
   const TEXT = {
     en:{ label:'Keyword', placeholder:'One keyword', apply:'Search', clear:'Clear', searching:'Searching keyword news…', none:'No news found for this keyword in this area.', error:'Keyword search unavailable.', active:'Keyword', try:'Try', examples:['AI','earthquake','World Cup','election'] },
@@ -97,6 +99,10 @@
   async function keywordFetch(){
     if(!state.country || !keyword) return baseFetchNews();
     const id=++requestId;
+    activeController?.abort();
+    const controller=new AbortController();
+    activeController=controller;
+    const timeout=setTimeout(()=>controller.abort(),REQUEST_TIMEOUT_MS);
     const c=copy();
     setNewsState(c.searching,true);
     ui.newsWindow.textContent=`${c.active}: ${keyword}`;
@@ -106,7 +112,8 @@
       const response=await fetch(ENDPOINT,{
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({country:countryName(),region:japaneseRegion(),keyword})
+        body:JSON.stringify({country:countryName(),region:japaneseRegion(),keyword}),
+        signal:controller.signal
       });
       const data=await response.json().catch(()=>({}));
       if(id!==requestId) return;
@@ -121,11 +128,14 @@
       renderStaticNews(data.articles);
       ui.globeStatus.textContent=`${data.article_count || data.articles.length} · ${keyword}`;
     }catch(error){
-      console.error('Keyword news failed',error);
       if(id!==requestId) return;
+      console.error('Keyword news failed',error);
       setNewsState(c.error);
       ui.newsWindow.textContent=`${c.active}: ${keyword}`;
       ui.globeStatus.textContent=c.error;
+    }finally{
+      clearTimeout(timeout);
+      if(activeController===controller) activeController=null;
     }
   }
 

@@ -1,4 +1,5 @@
 const GOOGLE = 'https://news.google.com/rss';
+const GOOGLE_TIMEOUT_MS = 12000;
 
 const EDITIONS = {
   Taiwan:['台灣','zh-TW','TW','TW:zh-Hant','Traditional Chinese'],
@@ -73,6 +74,28 @@ function norm(s=''){ return s.toLowerCase().normalize('NFKC').replace(/\s+/g,' '
 function searchUrl(q,hl,gl,ceid){ return `${GOOGLE}/search?q=${encodeURIComponent(q)}&hl=${encodeURIComponent(hl)}&gl=${gl}&ceid=${encodeURIComponent(ceid)}`; }
 function edition(country){ return EDITIONS[country] || [country,'en-US','US','US:en','English']; }
 
+async function fetchFeed(url){
+  const controller=new AbortController();
+  const timeout=setTimeout(()=>controller.abort(),GOOGLE_TIMEOUT_MS);
+  const started=Date.now();
+  try{
+    const response=await fetch(url,{
+      headers:{'User-Agent':'WorldNewsGlobe/1.0'},
+      signal:controller.signal
+    });
+    const elapsed_ms=Date.now()-started;
+    if(!response.ok) throw new Error(`Google News HTTP ${response.status} after ${elapsed_ms}ms`);
+    return {xml:await response.text(),status:response.status,elapsed_ms};
+  }catch(error){
+    if(error?.name==='AbortError'){
+      throw new Error(`Google News timeout after ${GOOGLE_TIMEOUT_MS}ms`);
+    }
+    throw error;
+  }finally{
+    clearTimeout(timeout);
+  }
+}
+
 function score(item,keyword,place){
   const t=norm(item.title), k=norm(keyword), p=norm(place);
   let s=0;
@@ -101,11 +124,25 @@ export async function keywordSearch(country,region,keyword){
     : [`"${cleanKeyword}" when:1d`, `"${cleanKeyword}" ${countryQuery} when:1d`];
 
   const settled=await Promise.allSettled(queries.map(async(q,i)=>{
-    const r=await fetch(searchUrl(q,hl,gl,ceid),{headers:{'User-Agent':'WorldNewsGlobe/1.0'}});
-    if(!r.ok) throw new Error(`Google News ${r.status}`);
-    return parseRss(await r.text(),`keyword-${i+1}`,language);
+    const result=await fetchFeed(searchUrl(q,hl,gl,ceid));
+    return {
+      articles:parseRss(result.xml,`keyword-${i+1}`,language),
+      status:result.status,
+      elapsed_ms:result.elapsed_ms
+    };
   }));
-  const all=settled.flatMap(x=>x.status==='fulfilled'?x.value:[]);
+  const feed_results=settled.map((result,index)=>result.status==='fulfilled'
+    ? {feed:`keyword-${index+1}`,ok:true,status:result.value.status,elapsed_ms:result.value.elapsed_ms,article_count:result.value.articles.length}
+    : {feed:`keyword-${index+1}`,ok:false,error:String(result.reason?.message||result.reason||'Google News request failed')}
+  );
+  const successful=settled.filter(result=>result.status==='fulfilled');
+  if(!successful.length){
+    const error=new Error(`All Google News queries failed: ${feed_results.map(result=>result.error).join('; ')}`);
+    error.code='GOOGLE_NEWS_UPSTREAM_FAILED';
+    error.feed_results=feed_results;
+    throw error;
+  }
+  const all=successful.flatMap(result=>result.value.articles);
   const seen=new Set();
   const unique=[];
   for(const item of all){
@@ -130,6 +167,7 @@ export async function keywordSearch(country,region,keyword){
     ok:true,country,region,keyword:cleanKeyword,
     generated_at:new Date().toISOString(),
     source:'Google News RSS via Cloudflare Worker',
-    mode:'keyword',candidate_count:all.length,article_count:articles.length,articles
+    mode:'keyword',candidate_count:all.length,article_count:articles.length,
+    partial:successful.length<settled.length,feed_results,articles
   };
 }

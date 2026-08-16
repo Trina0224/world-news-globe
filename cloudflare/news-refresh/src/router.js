@@ -136,7 +136,12 @@ async function handleKeyword(request, origin) {
     const result = await keywordSearch(country, region, keyword);
     return json(result, 200, origin);
   } catch (error) {
-    return json({ ok:false, error:error?.message || 'Keyword search failed' }, 500, origin);
+    const upstream = error?.code === 'GOOGLE_NEWS_UPSTREAM_FAILED';
+    return json({
+      ok:false,
+      error:error?.message || 'Keyword search failed',
+      ...(upstream ? { code:error.code, feed_results:error.feed_results } : {})
+    }, upstream ? 502 : 500, origin);
   }
 }
 
