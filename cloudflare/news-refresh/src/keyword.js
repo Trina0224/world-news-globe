@@ -79,6 +79,24 @@ function parseRss(xml,feed,language){
 function norm(s=''){ return s.toLowerCase().normalize('NFKC').replace(/\s+/g,' ').trim(); }
 function searchUrl(q,hl,gl,ceid){ return `${GOOGLE}/search?q=${encodeURIComponent(q)}&hl=${encodeURIComponent(hl)}&gl=${gl}&ceid=${encodeURIComponent(ceid)}`; }
 function edition(country){ return EDITIONS[country] || [country,'en-US','US','US:en','English']; }
+function sleep(ms){ return new Promise(resolve=>setTimeout(resolve,ms)); }
+
+async function fetchRss(url){
+  let lastError=null;
+  for(let attempt=0;attempt<4;attempt++){
+    try{
+      const response=await fetch(url,{headers:{'User-Agent':'Mozilla/5.0 WorldNewsGlobe/2.0','Accept':'application/rss+xml, application/xml, text/xml, */*'}});
+      if(response.ok) return await response.text();
+      const retryable=[429,500,502,503,504].includes(response.status);
+      lastError=new Error(`Google News ${response.status}`);
+      if(!retryable) throw lastError;
+    }catch(error){
+      lastError=error;
+    }
+    if(attempt<3) await sleep(350*Math.pow(2,attempt)+Math.floor(Math.random()*180));
+  }
+  throw lastError || new Error('Google News request failed');
+}
 
 function detectKeywordLanguage(text){
   if(/[ぁ-ゟ゠-ヿ]/u.test(text)) return 'ja';
@@ -154,11 +172,11 @@ export async function keywordSearch(env,country,region,keyword){
   }
 
   const settled=await Promise.allSettled(queries.map(async(q,i)=>{
-    const r=await fetch(searchUrl(q,hl,gl,ceid),{headers:{'User-Agent':'WorldNewsGlobe/1.0'}});
-    if(!r.ok) throw new Error(`Google News ${r.status}`);
-    return parseRss(await r.text(),`keyword-${i+1}`,language);
+    const xml=await fetchRss(searchUrl(q,hl,gl,ceid));
+    return parseRss(xml,`keyword-${i+1}`,language);
   }));
   const all=settled.flatMap(x=>x.status==='fulfilled'?x.value:[]);
+  const failed=settled.filter(x=>x.status==='rejected').length;
   const seen=new Set();
   const unique=[];
   for(const item of all){
@@ -179,10 +197,14 @@ export async function keywordSearch(env,country,region,keyword){
     if(articles.length>=10) break;
   }
 
+  if(!articles.length && failed===settled.length){
+    throw new Error('Google News is temporarily unavailable for keyword search');
+  }
+
   return {
     ok:true,country,region,keyword:cleanKeyword,keyword_variants:keywords,
     generated_at:new Date().toISOString(),
     source:'Google News RSS via Cloudflare Worker',
-    mode:'keyword-localized',candidate_count:all.length,article_count:articles.length,articles
+    mode:'keyword-localized',candidate_count:all.length,failed_query_count:failed,article_count:articles.length,articles
   };
 }
