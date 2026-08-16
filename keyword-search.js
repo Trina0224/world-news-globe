@@ -1,8 +1,7 @@
 (() => {
   const ENDPOINT = 'https://world-news-refresh.kozakurayuki.workers.dev/keyword';
-  const STORAGE_KEY = 'world-news-keyword';
   const baseFetchNews = fetchNews.bind(window);
-  let keyword = (localStorage.getItem(STORAGE_KEY) || '').trim();
+  let keyword = String(window.initialWorldNewsKeyword || '').trim().slice(0, 80);
   let requestId = 0;
 
   const TEXT = {
@@ -138,10 +137,9 @@
   function setKeyword(value){
     keyword=String(value||'').trim().slice(0,80);
     input.value=keyword;
-    if(keyword) localStorage.setItem(STORAGE_KEY,keyword);
-    else localStorage.removeItem(STORAGE_KEY);
     window.worldNewsKeyword=keyword;
     updateCopy();
+    window.syncWorldNewsUrl?.(true);
   }
 
   root.addEventListener('submit',event=>{
