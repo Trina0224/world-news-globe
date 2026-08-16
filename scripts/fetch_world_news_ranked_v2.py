@@ -34,36 +34,42 @@ def rebuild_taiwan():
     feeds=[
         ('top',f'{BASE}?hl=zh-TW&gl=TW&ceid=TW:zh-Hant'),
         ('nation',f'{BASE}/headlines/section/topic/NATION?hl=zh-TW&gl=TW&ceid=TW:zh-Hant'),
-        ('government',qurl('台灣 政府 when:1d')),
-        ('economy',qurl('台灣 經濟 when:1d')),
-        ('society',qurl('台灣 社會 when:1d')),
-        ('breaking',qurl('台灣 重大 新聞 when:1d')),
-        ('disaster',qurl('台灣 地震 災害 天氣 when:1d')),
+        ('government',qurl('台灣 政府 總統 行政院 立法院 when:1d')),
+        ('economy',qurl('台灣 經濟 產業 股市 關稅 物價 when:1d')),
+        ('society',qurl('台灣 社會 司法 重大事故 when:1d')),
+        ('breaking',qurl('台灣 即時 重大新聞 when:1d')),
+        ('disaster',qurl('台灣 地震 颱風 豪雨 災害 when:1d')),
     ]
     candidates=[]
     for name,url in feeds:
-        try: candidates.extend(parse(url,name))
-        except Exception as exc: print(f'WARNING Taiwan/{name}: {exc}')
+        try:
+            candidates.extend(parse(url,name))
+        except Exception as exc:
+            print(f'WARNING Taiwan/{name}: {exc}')
         time.sleep(.04)
     ranked=rank_articles_v2(candidates,['台灣','臺灣'],10,2,False)
-    if len(ranked)<10: raise RuntimeError(f'Taiwan v2 produced only {len(ranked)} headlines')
+    if len(ranked)<10:
+        raise RuntimeError(f'Taiwan v2.1 produced only {len(ranked)} headlines')
     return ranked,candidates
 
 
 def main():
     base.main()
-    with open(base.OUT,encoding='utf-8') as f: payload=json.load(f)
+    with open(base.OUT,encoding='utf-8') as f:
+        payload=json.load(f)
     ranked,candidates=rebuild_taiwan()
     payload['countries']['Taiwan']={
-        'location':'Taiwan','source':'Google News RSS','ranking':'multi-feed-event-v2',
-        'candidate_count':len(candidates),'source_count':len({a.get('source','').strip() for a in candidates if a.get('source','').strip()}),
-        'article_count':len(ranked),'articles':ranked
+        'location':'Taiwan','source':'Google News RSS','ranking':'multi-feed-event-v2.1',
+        'candidate_count':len(candidates),
+        'source_count':len({a.get('source','').strip() for a in candidates if a.get('source','').strip()}),
+        'event_count':len(ranked),'article_count':len(ranked),'articles':ranked
     }
-    payload['ranking']='event-cluster-v1 + Taiwan multi-feed-event-v2'
+    payload['ranking']='event-cluster-v1 + Taiwan multi-feed-event-v2.1'
     payload['generated_at']=datetime.now(timezone.utc).isoformat()
     with open(base.OUT,'w',encoding='utf-8') as f:
         json.dump(payload,f,ensure_ascii=False,separators=(',',':'));f.write('\n')
-    print(f'Taiwan v2: {len(ranked)} from {len(candidates)} candidates')
+    print(f'Taiwan v2.1: {len(ranked)} from {len(candidates)} candidates')
 
 
-if __name__=='__main__': main()
+if __name__=='__main__':
+    main()
