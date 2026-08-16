@@ -96,6 +96,44 @@ async function fetchFeed(url){
   }
 }
 
+function buildQueries(country,region,keyword){
+  const [countryQuery,hl,gl,ceid,language]=edition(country);
+  const place=region || countryQuery || country;
+  let queryPlace=place;
+  if(country==='United States' || country==='United States of America'){
+    if(region==='District of Columbia') queryPlace='Washington DC';
+    if(region==='Washington') queryPlace='Washington state';
+  }
+  const queries=region
+    ? [`"${keyword}" "${queryPlace}" when:1d`, `${keyword} ${queryPlace} when:1d`]
+    : [`"${keyword}" when:1d`, `"${keyword}" ${countryQuery} when:1d`];
+  return {countryQuery,hl,gl,ceid,language,queryPlace,queries};
+}
+
+export async function keywordDebug(country,region,keyword){
+  const cleanKeyword=String(keyword||'').trim().slice(0,80);
+  if(!cleanKeyword) return {ok:false,error:'keyword is required'};
+  const {hl,gl,ceid,language,queryPlace,queries}=buildQueries(country,region,cleanKeyword);
+  const started=Date.now();
+  const settled=await Promise.allSettled(queries.map(async(q,i)=>{
+    const url=searchUrl(q,hl,gl,ceid);
+    const result=await fetchFeed(url);
+    const articles=parseRss(result.xml,`keyword-${i+1}`,language);
+    return {feed:`keyword-${i+1}`,ok:true,query:q,url,status:result.status,elapsed_ms:result.elapsed_ms,article_count:articles.length};
+  }));
+  const feeds=settled.map((result,index)=>result.status==='fulfilled'
+    ? result.value
+    : {feed:`keyword-${index+1}`,ok:false,query:queries[index],error:String(result.reason?.message||result.reason||'Google News request failed')}
+  );
+  return {
+    ok:feeds.some(feed=>feed.ok),
+    country,region,keyword:cleanKeyword,query_place:queryPlace,
+    worker_elapsed_ms:Date.now()-started,
+    generated_at:new Date().toISOString(),
+    feeds
+  };
+}
+
 function score(item,keyword,place){
   const t=norm(item.title), k=norm(keyword), p=norm(place);
   let s=0;
@@ -108,20 +146,9 @@ function score(item,keyword,place){
 }
 
 export async function keywordSearch(country,region,keyword){
-  const [countryQuery,hl,gl,ceid,language]=edition(country);
-  const place = region || countryQuery || country;
   const cleanKeyword=String(keyword||'').trim().slice(0,80);
   if(!cleanKeyword) return {ok:true,country,region,keyword:'',article_count:0,articles:[]};
-
-  let queryPlace=place;
-  if(country==='United States' || country==='United States of America'){
-    if(region==='District of Columbia') queryPlace='Washington DC';
-    if(region==='Washington') queryPlace='Washington state';
-  }
-
-  const queries = region
-    ? [`"${cleanKeyword}" "${queryPlace}" when:1d`, `${cleanKeyword} ${queryPlace} when:1d`]
-    : [`"${cleanKeyword}" when:1d`, `"${cleanKeyword}" ${countryQuery} when:1d`];
+  const {hl,gl,ceid,language,queryPlace,queries}=buildQueries(country,region,cleanKeyword);
 
   const settled=await Promise.allSettled(queries.map(async(q,i)=>{
     const result=await fetchFeed(searchUrl(q,hl,gl,ceid));
