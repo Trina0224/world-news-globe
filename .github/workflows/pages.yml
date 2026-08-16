@@ -103,25 +103,24 @@ jobs:
           if any(v >= 0.8 for v in us_overlaps.values()):
               raise SystemExit(f'US state feeds are too similar: {us_overlaps}')
 
-          if jp.get('ranking') != 'multi-feed-event-v2':
-              raise SystemExit('Japan national did not use ranking v2')
-          if california_payload.get('ranking') != 'multi-feed-event-v2':
-              raise SystemExit('California did not use ranking v2')
-          if taiwan_payload.get('ranking') != 'multi-feed-event-v2':
-              raise SystemExit('Taiwan did not use ranking v2')
+          expected_ranking = 'multi-feed-event-v2.1'
+          if jp.get('ranking') != expected_ranking:
+              raise SystemExit(f'Japan national did not use {expected_ranking}')
+          if california_payload.get('ranking') != expected_ranking:
+              raise SystemExit(f'California did not use {expected_ranking}')
+          if taiwan_payload.get('ranking') != expected_ranking:
+              raise SystemExit(f'Taiwan did not use {expected_ranking}')
           for label, payload in [('Japan', jp), ('California', california_payload), ('Taiwan', taiwan_payload)]:
               if payload.get('candidate_count', 0) < 20:
-                  raise SystemExit(f'{label} v2 candidate pool is unexpectedly small: {payload.get("candidate_count")}')
+                  raise SystemExit(f'{label} v2.1 candidate pool is unexpectedly small: {payload.get("candidate_count")}')
               if payload.get('source_count', 0) < 3:
-                  raise SystemExit(f'{label} v2 source diversity is unexpectedly low: {payload.get("source_count")}')
+                  raise SystemExit(f'{label} v2.1 source diversity is unexpectedly low: {payload.get("source_count")}')
+              if not all('rank_signals' in a for a in payload.get('articles', [])):
+                  raise SystemExit(f'{label} v2.1 headlines are missing rank_signals')
 
-          print('Japan v2:', len(jp.get('articles', [])), 'from', jp.get('candidate_count'), 'candidates /', jp.get('source_count'), 'sources')
-          print('California v2:', len(california_payload.get('articles', [])), 'from', california_payload.get('candidate_count'), 'candidates /', california_payload.get('source_count'), 'sources')
-          print('Taiwan v2:', len(taiwan), 'from', taiwan_payload.get('candidate_count'), 'candidates /', taiwan_payload.get('source_count'), 'sources')
-          print('Japan prefectures:', len(jp_files))
-          print('US regions (50 states + DC):', len(us_files))
-          print('World countries:', len(world_countries))
-          print('World non-empty:', nonempty)
+          print('Japan v2.1:', len(jp.get('articles', [])), 'from', jp.get('candidate_count'), 'candidates /', jp.get('source_count'), 'sources')
+          print('California v2.1:', len(california_payload.get('articles', [])), 'from', california_payload.get('candidate_count'), 'candidates /', california_payload.get('source_count'), 'sources')
+          print('Taiwan v2.1:', len(taiwan), 'from', taiwan_payload.get('candidate_count'), 'candidates /', taiwan_payload.get('source_count'), 'sources')
           print('US sample overlaps:', us_overlaps)
           PY
       - name: Setup Pages
