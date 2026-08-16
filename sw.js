@@ -1,4 +1,4 @@
-const CACHE_NAME = 'world-news-globe-v4';
+const CACHE_NAME = 'world-news-globe-v5';
 const SHELL = [
   './',
   './index.html',
@@ -13,6 +13,7 @@ const SHELL = [
   './desktop-map-click-fix.js',
   './language-system.js',
   './client-state.js',
+  './live-refresh.js',
   './manifest.webmanifest',
   './icons/apple-touch-icon.png',
   './icons/icon-192.png',
