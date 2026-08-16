@@ -1,5 +1,5 @@
 import refreshApp from './index.js';
-import { keywordSearch } from './keyword.js';
+import { keywordSearch, keywordDebug } from './keyword.js';
 
 const ALLOWED_ORIGIN = 'https://trina0224.github.io';
 const TRANSLATION_MODEL = '@cf/meta/m2m100-1.2b';
@@ -145,6 +145,24 @@ async function handleKeyword(request, origin) {
   }
 }
 
+async function handleKeywordDebug(request, origin) {
+  if (request.method !== 'GET') {
+    return json({ ok:false, error:'Use GET /debug-keyword' }, 405, origin);
+  }
+  const url = new URL(request.url);
+  const country = String(url.searchParams.get('country') || '').trim();
+  const region = String(url.searchParams.get('region') || '').trim();
+  const keyword = String(url.searchParams.get('keyword') || '').trim();
+  if (!country) return json({ ok:false, error:'country is required' }, 400, origin);
+  if (!keyword) return json({ ok:false, error:'keyword is required' }, 400, origin);
+  try {
+    const result = await keywordDebug(country, region, keyword);
+    return json(result, result.ok ? 200 : 502, origin);
+  } catch (error) {
+    return json({ ok:false, error:error?.message || 'Keyword debug failed' }, 500, origin);
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const origin = request.headers.get('Origin') || ALLOWED_ORIGIN;
@@ -162,6 +180,10 @@ export default {
         return new Response(null, { status:204, headers:cors(origin) });
       }
       return handleKeyword(request, origin);
+    }
+
+    if (url.pathname === '/debug-keyword') {
+      return handleKeywordDebug(request, origin);
     }
 
     return refreshApp.fetch(request, env, ctx);
