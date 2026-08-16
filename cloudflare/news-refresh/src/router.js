@@ -2,7 +2,6 @@ import refreshApp from './index.js';
 
 const ALLOWED_ORIGIN = 'https://trina0224.github.io';
 const TRANSLATION_MODEL = '@cf/meta/m2m100-1.2b';
-const ZH_MODEL = '@cf/meta/llama-3.2-3b-instruct';
 
 const SOURCE_LANGS = {
   'English':'en',
@@ -60,32 +59,11 @@ function sameLanguage(language, target) {
   return false;
 }
 
-async function translateTraditionalChinese(env, text) {
-  const response = await env.AI.run(ZH_MODEL, {
-    messages: [
-      {
-        role: 'system',
-        content: 'Translate news headlines into natural Traditional Chinese used in Taiwan. Preserve names, numbers, organizations, and factual meaning. Return only the translated headline. Never explain or add quotation marks.'
-      },
-      { role: 'user', content: text }
-    ],
-    temperature: 0.1,
-    max_tokens: 180
-  });
-  const translated = String(response?.response || '').trim();
-  if (!translated) throw new Error('Traditional Chinese translation returned empty output');
-  return translated.replace(/^['“”"]|['“”"]$/g, '').trim();
-}
-
 async function translateOne(env, item, target) {
   const text = String(item?.text || '').trim();
   const language = String(item?.language || 'English').trim();
   if (!text) return '';
   if (sameLanguage(language, target)) return text;
-
-  if (target === 'zh-Hant') {
-    return translateTraditionalChinese(env, text);
-  }
 
   const source_lang = SOURCE_LANGS[language] || 'en';
   const target_lang = targetCode(target);
@@ -126,7 +104,8 @@ async function handleTranslate(request, env, origin) {
     return json({
       ok:true,
       target,
-      model: target === 'zh-Hant' ? ZH_MODEL : TRANSLATION_MODEL,
+      model:TRANSLATION_MODEL,
+      chinese_normalization: target === 'zh-Hant' ? 'client-opencc-s2twp' : null,
       free_only:true,
       translations
     }, 200, origin);
