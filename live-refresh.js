@@ -29,6 +29,10 @@
     'Indonesian','Thai','Vietnamese'
   ]);
 
+  const toTaiwanTraditional = window.OpenCC?.Converter
+    ? window.OpenCC.Converter({ from:'cn', to:'twp' })
+    : null;
+
   let translated = false;
   let translationBusy = false;
 
@@ -72,6 +76,14 @@
         .find(value => KNOWN_LANGUAGES.has(value)) || 'English';
       return { text: link?.dataset.originalTitle || link?.textContent || '', language };
     }).filter(item => item.text);
+  }
+
+  function normalizeTranslation(text) {
+    const translatedTitle = String(text || '').trim();
+    if (!translatedTitle) return '';
+    if (state.lang !== 'zh-Hant') return translatedTitle;
+    if (!toTaiwanTraditional) throw new Error('OpenCC is unavailable');
+    return toTaiwanTraditional(translatedTitle).trim();
   }
 
   async function refreshNow() {
@@ -139,6 +151,10 @@
     ui.globeStatus.textContent = c.translating;
 
     try {
+      if (state.lang === 'zh-Hant' && !toTaiwanTraditional) {
+        throw new Error('OpenCC is unavailable');
+      }
+
       const response = await fetch(TRANSLATE_ENDPOINT, {
         method:'POST',
         headers:{ 'Content-Type':'application/json' },
@@ -151,10 +167,11 @@
         throw err;
       }
 
-      const links = [...ui.newsList.querySelectorAll('.news-title')].slice(0, data.translations.length);
+      const normalized = data.translations.map(normalizeTranslation);
+      const links = [...ui.newsList.querySelectorAll('.news-title')].slice(0, normalized.length);
       links.forEach((link, index) => {
         const original = link.textContent.trim();
-        const translatedTitle = String(data.translations[index] || '').trim();
+        const translatedTitle = normalized[index];
         if (!translatedTitle || translatedTitle === original) return;
         link.dataset.originalTitle = original;
         link.textContent = translatedTitle;
@@ -167,7 +184,9 @@
       });
 
       translated = true;
-      ui.globeStatus.textContent = `${data.translations.length} headlines translated`;
+      ui.globeStatus.textContent = state.lang === 'zh-Hant'
+        ? `${normalized.length} headlines translated · Taiwan Traditional`
+        : `${normalized.length} headlines translated`;
     } catch (error) {
       console.error('Headline translation failed', error);
       ui.globeStatus.textContent = error.quota ? c.quota : c.translateFail;
