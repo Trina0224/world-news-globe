@@ -2,6 +2,9 @@
 import json
 import math
 import os
+import time
+import random
+import urllib.error
 import urllib.request
 
 BASE = "https://raw.githubusercontent.com/amay077/JapanPrefGeoJson/master/prefs"
@@ -20,8 +23,17 @@ PREFS = [
 
 def fetch_json(url):
     req = urllib.request.Request(url, headers={'User-Agent':'WorldNewsGlobe/1.0'})
-    with urllib.request.urlopen(req, timeout=20) as r:
-        return json.load(r)
+    # This normally runs only on a cold cache; tolerate temporary CDN errors.
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                return json.load(r)
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            if attempt == 3:
+                raise
+            delay = min(8, 1.5 * (2 ** attempt)) + random.uniform(0, .5)
+            print(f"Retrying Japan GeoJSON ({attempt + 1}/4): {exc}; sleep {delay:.1f}s", flush=True)
+            time.sleep(delay)
 
 
 def sq_dist_point_segment(p, a, b):
