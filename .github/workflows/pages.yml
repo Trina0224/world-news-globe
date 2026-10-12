@@ -4,131 +4,96 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: '7,37 * * * *'
+    # Every two hours (UTC), instead of twice per hour.
+    - cron: '7 */2 * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 
 concurrency:
-  group: pages
-  cancel-in-progress: true
+  group: world-news-pages-${{ github.ref }}
+  # Do not cancel a running release when a new run is queued.
+  cancel-in-progress: false
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build:
     runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.refresh.outputs.ready }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Fetch and rank Japan and US news
-        run: python3 scripts/fetch_news_ranked_v2.py
-      - name: Fetch and rank world country news
-        run: python3 scripts/fetch_world_news_ranked_v2.py
-      - name: Build Japan prefecture map
-        run: python3 scripts/fetch_japan_map.py
-      - name: Validate generated news and map
-        run: |
-          test -s data/countries/jp.json
-          test -s data/countries/us.json
-          test -s data/world.json
-          test -s data/maps/japan-prefectures.geojson
-          test -s manifest.webmanifest
-          test -s sw.js
-          python3 - <<'PY'
-          import glob, json
 
-          def read(path):
-              with open(path, encoding='utf-8') as f:
-                  return json.load(f)
+      - name: Restore last-known-good snapshot
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: data
+          key: news-cache-${{ github.repository_id }}-${{ github.run_id }}
+          restore-keys: |
+            news-cache-${{ github.repository_id }}-
 
-          jp = read('data/countries/jp.json')
-          us = read('data/countries/us.json')
-          world = read('data/world.json')
-          if len(jp.get('articles', [])) < 10:
-              raise SystemExit('Japan national feed needs at least 10 headlines')
-          if len(us.get('articles', [])) < 10:
-              raise SystemExit('US national feed needs at least 10 headlines')
+      - name: Bootstrap from last published Pages if cache is missing
+        run: python3 scripts/restore_cache.py
 
-          world_countries = world.get('countries', {})
-          if len(world_countries) < 160:
-              raise SystemExit(f'World cache has too few countries: {len(world_countries)}')
-          nonempty = sum(1 for value in world_countries.values() if value.get('articles'))
-          if nonempty < 145:
-              raise SystemExit(f'World cache has too few non-empty countries: {nonempty}')
-          taiwan_payload = world_countries.get('Taiwan', {})
-          taiwan = taiwan_payload.get('articles', [])
-          if len(taiwan) < 10:
-              raise SystemExit(f'Taiwan feed needs at least 10 headlines, got {len(taiwan)}')
+      - name: Refresh news (leave previous site live if upstream fails)
+        id: refresh
+        run: python3 scripts/refresh_site_data.py
 
-          jp_files = sorted(glob.glob('data/jp/*.json'))
-          us_files = sorted(glob.glob('data/us/*.json'))
-          if len(jp_files) != 47:
-              raise SystemExit(f'Expected 47 prefecture files, got {len(jp_files)}')
-          if len(us_files) != 51:
-              raise SystemExit(f'Expected 51 US region files (50 states + DC), got {len(us_files)}')
-          if 'data/us/district-of-columbia.json' not in us_files:
-              raise SystemExit('District of Columbia news file is missing')
+      - name: Validate publishable snapshot
+        if: steps.refresh.outputs.ready == 'true'
+        run: python3 scripts/validate_site_data.py
 
-          pref_map = read('data/maps/japan-prefectures.geojson')
-          if len(pref_map.get('features', [])) != 47:
-              raise SystemExit('Japan map must contain 47 prefecture features')
+      - name: Save last-known-good snapshot
+        if: steps.refresh.outputs.ready == 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: data
+          key: news-cache-${{ github.repository_id }}-${{ github.run_id }}
 
-          def titles(path):
-              return [a.get('title','').strip() for a in read(path).get('articles', [])[:10] if a.get('title')]
-
-          def overlap(a, b):
-              sa, sb = set(a), set(b)
-              return len(sa & sb) / max(1, min(len(sa), len(sb)))
-
-          tokyo, osaka, hokkaido = titles('data/jp/tokyo.json'), titles('data/jp/osaka.json'), titles('data/jp/hokkaido.json')
-          if not tokyo or not osaka or not hokkaido:
-              raise SystemExit('Tokyo/Osaka/Hokkaido feeds must contain headlines')
-          if max(overlap(tokyo, osaka), overlap(tokyo, hokkaido), overlap(osaka, hokkaido)) >= 0.8:
-              raise SystemExit('Japan prefecture feeds are too similar')
-
-          california_payload = read('data/us/california.json')
-          california, texas, new_york = titles('data/us/california.json'), titles('data/us/texas.json'), titles('data/us/new-york.json')
-          if not california or not texas or not new_york:
-              raise SystemExit('California/Texas/New York feeds must contain headlines')
-          us_overlaps = {
-              'CA-TX': overlap(california, texas),
-              'CA-NY': overlap(california, new_york),
-              'TX-NY': overlap(texas, new_york),
-          }
-          if any(v >= 0.8 for v in us_overlaps.values()):
-              raise SystemExit(f'US state feeds are too similar: {us_overlaps}')
-
-          expected_ranking = 'multi-feed-event-v2.1'
-          if jp.get('ranking') != expected_ranking:
-              raise SystemExit(f'Japan national did not use {expected_ranking}')
-          if california_payload.get('ranking') != expected_ranking:
-              raise SystemExit(f'California did not use {expected_ranking}')
-          if taiwan_payload.get('ranking') != expected_ranking:
-              raise SystemExit(f'Taiwan did not use {expected_ranking}')
-          for label, payload in [('Japan', jp), ('California', california_payload), ('Taiwan', taiwan_payload)]:
-              if payload.get('candidate_count', 0) < 20:
-                  raise SystemExit(f'{label} v2.1 candidate pool is unexpectedly small: {payload.get("candidate_count")}')
-              if payload.get('source_count', 0) < 3:
-                  raise SystemExit(f'{label} v2.1 source diversity is unexpectedly low: {payload.get("source_count")}')
-              if not all('rank_signals' in a for a in payload.get('articles', [])):
-                  raise SystemExit(f'{label} v2.1 headlines are missing rank_signals')
-
-          print('Japan v2.1:', len(jp.get('articles', [])), 'from', jp.get('candidate_count'), 'candidates /', jp.get('source_count'), 'sources')
-          print('California v2.1:', len(california_payload.get('articles', [])), 'from', california_payload.get('candidate_count'), 'candidates /', california_payload.get('source_count'), 'sources')
-          print('Taiwan v2.1:', len(taiwan), 'from', taiwan_payload.get('candidate_count'), 'candidates /', taiwan_payload.get('source_count'), 'sources')
-          print('US sample overlaps:', us_overlaps)
-          PY
       - name: Setup Pages
+        if: steps.refresh.outputs.ready == 'true'
         uses: actions/configure-pages@v5
+
       - name: Upload static site
+        if: steps.refresh.outputs.ready == 'true'
         uses: actions/upload-pages-artifact@v3
         with:
           path: .
+
+      - name: No publish required
+        if: steps.refresh.outputs.ready != 'true'
+        run: echo "::notice::Upstream data was unavailable. Retaining the last deployed site without failing the workflow."
+
+  deploy:
+    if: needs.build.outputs.ready == 'true'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Wait for Pages artifact to become visible
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in $(seq 1 10); do
+            count="$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --jq '[.artifacts[] | select(.name == "github-pages" and .expired == false)] | length' 2>/dev/null || echo 0)"
+            if [[ "$count" =~ ^[0-9]+$ ]] && (( count > 0 )); then
+              echo "Pages artifact is visible (attempt $attempt)"
+              exit 0
+            fi
+            echo "Artifact not visible yet ($attempt/10); retrying in 6 seconds"
+            sleep 6
+          done
+          echo "::error::Pages artifact could not be found after retries"
+          exit 1
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
