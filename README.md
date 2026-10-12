@@ -27,7 +27,7 @@ The default news experience is intentionally static-first:
 
 This keeps the site inexpensive, resilient, and fast even when live upstream services are unavailable.
 
-The deployment workflow currently refreshes news twice per hour and validates that the generated country, Japan prefecture, and US state datasets are complete enough before publishing.
+The deployment workflow attempts a refresh **every two hours**, validating the country, Japan prefecture, and US state datasets before publishing. It restores the last-known-good snapshot from GitHub Actions cache (or bootstraps it from the published Pages site when the cache is cold). If an upstream RSS fetch fails, the workflow skips publishing and leaves the previously deployed site intact. Prefecture GeoJSON is reused instead of being downloaded on every refresh.
 
 ## Keyword search
 
@@ -87,7 +87,7 @@ Japan and the United States use separate fixed SVG overlays for regional drill-d
 
 ## Deployment
 
-GitHub Pages is deployed through GitHub Actions.
+GitHub Pages is deployed through GitHub Actions. The workflow builds and deploys in separate jobs and waits for the uploaded Pages artifact to become visible before deployment. The news snapshot uses GitHub Actions cache, which is best effort; the published site is the recovery source if that cache expires. A skipped refresh is logged as a warning/notice rather than taking the existing site offline.
 
 If Pages is not already enabled, open:
 
