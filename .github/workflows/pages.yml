@@ -22,11 +22,15 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 18
     outputs:
       ready: ${{ steps.refresh.outputs.ready }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Offline deployment safety tests
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
 
       - name: Restore last-known-good snapshot
         uses: actions/cache/restore@v4
