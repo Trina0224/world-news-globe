@@ -1,5 +1,5 @@
 import refreshApp from './index.js';
-import { keywordSearch, keywordDebug } from './keyword.js';
+import { keywordSearch, keywordDebug, KEYWORD_VERSION } from './keyword.js';
 
 const ALLOWED_ORIGIN = 'https://trina0224.github.io';
 const TRANSLATION_MODEL = '@cf/meta/m2m100-1.2b';
@@ -37,6 +37,8 @@ function cors(origin) {
     'Access-Control-Allow-Origin': allowed,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Max-Age': '600',
+    'Vary': 'Origin',
     'Cache-Control': 'no-store',
     'Content-Type': 'application/json; charset=utf-8'
   };
@@ -122,45 +124,39 @@ async function handleTranslate(request, env, origin) {
   }
 }
 
-async function handleKeyword(request, origin) {
-  if (request.method !== 'POST') {
-    return json({ ok:false, error:'Use POST /keyword' }, 405, origin);
-  }
+async function handleKeyword(request, env, ctx, origin) {
+  if (request.method !== 'POST') return json({ok:false,error:'Use POST /keyword'},405,origin);
+  const request_id=crypto.randomUUID();
+  let body;
+  try {body=await request.json();}
+  catch {return json({ok:false,error:'Invalid JSON',request_id},400,origin);}
+  const country=String(body?.country||'').trim().slice(0,100);
+  const region=String(body?.region||'').trim().slice(0,100);
+  const keyword=String(body?.keyword||'').trim().slice(0,80);
+  if(!country || !keyword) return json({ok:false,error:'country and keyword are required',request_id},400,origin);
   try {
-    const body = await request.json();
-    const country = String(body?.country || '').trim();
-    const region = String(body?.region || '').trim();
-    const keyword = String(body?.keyword || '').trim();
-    if (!country) return json({ ok:false, error:'country is required' }, 400, origin);
-    if (!keyword) return json({ ok:false, error:'keyword is required' }, 400, origin);
-    const result = await keywordSearch(country, region, keyword);
-    return json(result, 200, origin);
-  } catch (error) {
-    const upstream = error?.code === 'GOOGLE_NEWS_UPSTREAM_FAILED';
-    return json({
-      ok:false,
-      error:error?.message || 'Keyword search failed',
-      ...(upstream ? { code:error.code, feed_results:error.feed_results } : {})
-    }, upstream ? 502 : 500, origin);
+    const result=await keywordSearch(country,region,keyword,{env,ctx,force:body.refresh===true,sourceLanguage:body.source_language});
+    return json({...result,request_id},200,origin);
+  } catch(error) {
+    const upstream=error?.code==='GOOGLE_NEWS_UPSTREAM_FAILED';
+    // No credentials, cookies, or raw upstream HTML are exposed in diagnostics.
+    return json({ok:false,version:KEYWORD_VERSION,request_id,country,region,keyword,
+      code:error.code || 'KEYWORD_ERROR',error:error.message || 'Keyword search failed',
+      feed_results:error.feed_results || [],search_keyword:error.search_keyword,
+      localization:error.localization,retry_after_seconds:error.retry_after_seconds || 0
+    },upstream?502:500,origin);
   }
 }
 
-async function handleKeywordDebug(request, origin) {
-  if (request.method !== 'GET') {
-    return json({ ok:false, error:'Use GET /debug-keyword' }, 405, origin);
-  }
-  const url = new URL(request.url);
-  const country = String(url.searchParams.get('country') || '').trim();
-  const region = String(url.searchParams.get('region') || '').trim();
-  const keyword = String(url.searchParams.get('keyword') || '').trim();
-  if (!country) return json({ ok:false, error:'country is required' }, 400, origin);
-  if (!keyword) return json({ ok:false, error:'keyword is required' }, 400, origin);
-  try {
-    const result = await keywordDebug(country, region, keyword);
-    return json(result, result.ok ? 200 : 502, origin);
-  } catch (error) {
-    return json({ ok:false, error:error?.message || 'Keyword debug failed' }, 500, origin);
-  }
+async function handleKeywordDebug(request, env, ctx, origin) {
+  if(request.method!=='GET') return json({ok:false,error:'Use GET /debug-keyword'},405,origin);
+  const url=new URL(request.url);
+  const country=String(url.searchParams.get('country')||'').trim().slice(0,100);
+  const region=String(url.searchParams.get('region')||'').trim().slice(0,100);
+  const keyword=String(url.searchParams.get('keyword')||'').trim().slice(0,80);
+  if(!country || !keyword) return json({ok:false,error:'country and keyword are required'},400,origin);
+  const result=await keywordDebug(country,region,keyword,{env,ctx,sourceLanguage:url.searchParams.get('source_language')});
+  return json({...result,request_id:crypto.randomUUID()},result.ok?200:502,origin);
 }
 
 export default {
@@ -179,11 +175,11 @@ export default {
       if (request.method === 'OPTIONS') {
         return new Response(null, { status:204, headers:cors(origin) });
       }
-      return handleKeyword(request, origin);
+      return handleKeyword(request, env, ctx, origin);
     }
 
     if (url.pathname === '/debug-keyword') {
-      return handleKeywordDebug(request, origin);
+      return handleKeywordDebug(request, env, ctx, origin);
     }
 
     return refreshApp.fetch(request, env, ctx);
