@@ -80,7 +80,7 @@ function renderStaticNews(articles) {
     const source = document.createElement('span'); source.className = 'badge'; source.textContent = article.source || 'Google News'; meta.appendChild(source);
     const when = articleDate({ datetime: article.published });
     if (when) { const time = document.createElement('span'); time.textContent = when; meta.appendChild(time); }
-    if (article.language) { const language = document.createElement('span'); language.className = 'language'; language.textContent = article.language; meta.appendChild(language); }
+    if (article.language) { const language = document.createElement('span'); language.textContent = article.language; meta.appendChild(language); }
     body.append(link, meta); li.append(number, body); ui.newsList.appendChild(li);
   });
 }
