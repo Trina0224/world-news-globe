@@ -86,31 +86,37 @@ function renderStaticNews(articles) {
 }
 
 fetchNews = async function () {
-  if (!state.country) return;
+  if (!state.country || window.worldNewsKeyword) return;
+  const requestId = state.newsRequestId = (state.newsRequestId || 0) + 1;
+  const countryName = rawName(state.country);
+  const region = state.region;
+  const current = () => requestId === state.newsRequestId && !window.worldNewsKeyword
+    && countryName === rawName(state.country) && region === state.region;
   setNewsState(t('loading'), true);
 
   try {
     if (isJapan()) {
       let path = 'data/countries/jp.json';
-      if (state.region && JP_REGION_SLUGS[state.region]) path = `data/jp/${JP_REGION_SLUGS[state.region]}.json`;
+      if (region && JP_REGION_SLUGS[region]) path = `data/jp/${JP_REGION_SLUGS[region]}.json`;
       const data = await fetchStaticJson(path);
-      renderStaticNews(Array.isArray(data.articles) ? data.articles : []);
+      if (current()) renderStaticNews(Array.isArray(data.articles) ? data.articles : []);
       return;
     }
 
     if (isUS()) {
       let path = 'data/countries/us.json';
-      if (state.region && US_REGION_SLUGS[state.region]) path = `data/us/${US_REGION_SLUGS[state.region]}.json`;
+      if (region && US_REGION_SLUGS[region]) path = `data/us/${US_REGION_SLUGS[region]}.json`;
       const data = await fetchStaticJson(path);
-      renderStaticNews(Array.isArray(data.articles) ? data.articles : []);
+      if (current()) renderStaticNews(Array.isArray(data.articles) ? data.articles : []);
       return;
     }
 
     const world = await getWorldNewsCache();
-    const country = world?.countries?.[rawName(state.country)];
-    renderStaticNews(Array.isArray(country?.articles) ? country.articles : []);
+    const country = world?.countries?.[countryName];
+    if (current()) renderStaticNews(Array.isArray(country?.articles) ? country.articles : []);
   } catch (error) {
-    console.error('Static news load failed', rawName(state.country), error);
+    if (!current()) return;
+    console.error('Static news load failed', countryName, error);
     setNewsState(t('error'));
   }
 };

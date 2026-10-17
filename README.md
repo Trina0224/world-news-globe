@@ -36,7 +36,8 @@ A single global keyword can be applied while browsing the globe.
 - When a keyword is active, selecting a country, US state, or Japan prefecture searches that area for the keyword.
 - The keyword is also reflected in the URL so the current view can be shared.
 - Empty keyword results stay empty rather than falling back to unrelated cached headlines.
-- Keyword search uses the selected country's Google News edition, so search language matters. For example, Taiwan may return better results for `選舉` than for `election`, and Japan may return better results for `選挙`.
+- Keyword search localizes common topics for the selected news edition: `election` becomes `選舉` in Taiwan and `選挙` in Japan. Other terms use best-effort translation with a 1.2-second wait limit; failures use the original term. The actual search term is shown below the input.
+- Each search uses one final RSS query rather than parallel original/translated queries. Valid zero results are not cached. Only successful results for the same country, region, and keyword may be reused, with a stale label if an upstream error requires fallback.
 
 Live keyword search is handled by the Cloudflare Worker at:
 
@@ -46,7 +47,7 @@ The Worker queries Google News RSS directly and returns ranked results to the fr
 
 ### Keyword reliability
 
-The frontend uses a single-flight request model so duplicate UI triggers for the same country/region/keyword do not repeatedly cancel and restart the same request.
+The frontend uses identity-safe single-flight control: duplicate triggers share one request, while old responses cannot overwrite a newer keyword, an empty-input Search, or the world view. Ordinary cached-news responses also check the current request generation before updating the panel.
 
 The Worker also retries transient Google News failures such as HTTP 429, HTTP 5xx, network errors, and timeouts with short backoff. This is important because Google News RSS can occasionally return temporary 503 responses even when the same request succeeds again shortly afterward.
 
@@ -54,7 +55,9 @@ A temporary diagnostic endpoint is available for troubleshooting live keyword be
 
 `/debug-keyword?country=Japan&keyword=AI`
 
-It reports per-feed status, latency, article counts, and retry attempts.
+It uses the same search/localization pipeline and reports the version, request ID, actual search term, cache state, and per-attempt diagnostics. This is a separate request, not a replay of a prior failure.
+
+See [keyword behavior and regression tests](docs/keyword-search.md) for limits and testing instructions. The [news quality review protocol](docs/news-quality-review.md) separates technical reliability from relevance, editorial diversity, and important-event omissions; it is not yet a completed quality assessment.
 
 ## Live refresh and translation
 
