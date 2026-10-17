@@ -1,8 +1,9 @@
-const GOOGLE = 'https://news.google.com/rss';
-const GOOGLE_ATTEMPT_TIMEOUT_MS = 5200;
-const GOOGLE_MAX_ATTEMPTS = 2;
-const GOOGLE_RETRY_DELAY_MS = 350;
+import { localizeKeyword } from './keyword-localization.js';
 
+export const KEYWORD_VERSION = '2026-10-17.1';
+const GOOGLE = 'https://news.google.com/rss';
+const FRESH_MS = 120000;
+const STALE_MS = 600000;
 const EDITIONS = {
   Taiwan:['台灣','zh-TW','TW','TW:zh-Hant','Traditional Chinese'],
   Japan:['日本','ja','JP','JP:ja','Japanese'],
@@ -48,177 +49,182 @@ const EDITIONS = {
   Thailand:['ประเทศไทย','th','TH','TH:th','Thai'],
   Vietnam:['Việt Nam','vi','VN','VN:vi','Vietnamese']
 };
-
+function norm(s=''){return String(s).normalize('NFKC').toLowerCase().replace(/\s+/g,' ').trim();}
+function canonicalCountry(country){
+  const key=norm(country);
+  if(['us','usa','u.s.','u.s.a.','united states of america'].includes(key)) return 'United States';
+  if(['tw','台灣','臺灣'].includes(key)) return 'Taiwan';
+  if(['jp','日本'].includes(key)) return 'Japan';
+  return Object.keys(EDITIONS).find(name=>norm(name)===key) || String(country).trim();
+}
 function decodeXml(text='') {
   return text.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g,'$1')
-    .replace(/&#(\d+);/g,(_,n)=>String.fromCodePoint(Number(n)))
-    .replace(/&#x([0-9a-f]+);/gi,(_,n)=>String.fromCodePoint(parseInt(n,16)))
-    .replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&apos;/g,"'")
-    .replace(/&lt;/g,'<').replace(/&gt;/g,'>');
+    .replace(/&#(x[0-9a-f]+|\d+);/gi,(whole,n)=>{
+      const value=n[0].toLowerCase()==='x'?parseInt(n.slice(1),16):Number(n);
+      return value>0 && value<=0x10ffff && !(value>=0xd800 && value<=0xdfff)?String.fromCodePoint(value):whole;
+    }).replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>');
 }
 function tag(block,name){
   const m=block.match(new RegExp(`<${name}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${name}>`,'i'));
   return decodeXml(m?.[1]?.trim()||'').replace(/<[^>]+>/g,'').trim();
 }
-function parseRss(xml,feed,language){
-  const out=[];
-  for(const m of xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)){
-    const b=m[1], title=tag(b,'title'), url=tag(b,'link');
-    if(!title||!url) continue;
-    const source=tag(b,'source');
-    const pub=tag(b,'pubDate');
-    const d=new Date(pub);
-    out.push({title,url,source,published:Number.isNaN(d.getTime())?pub:d.toISOString(),language,feed});
+function parseRss(xml,language){
+  if(!/<rss\b/i.test(xml) || !/<channel\b/i.test(xml) || !/<\/rss\s*>/i.test(xml)) {
+    throw Object.assign(new Error('Google returned a non-RSS or incomplete response'),{kind:'INVALID_RSS',retryable:false});
   }
+  const out=[];
+  let items=0;
+  for(const m of xml.matchAll(/<item(?:\s[^>]*)?>([\s\S]*?)<\/item>/gi)){
+    items++;
+    const title=tag(m[1],'title'),url=tag(m[1],'link');
+    if(!title || !/^https?:\/\//i.test(url)) continue;
+    const published=tag(m[1],'pubDate'),date=new Date(published);
+    out.push({title,url,source:tag(m[1],'source'),published:Number.isNaN(date.getTime())?published:date.toISOString(),language,feed:'keyword-1'});
+  }
+  if(items && !out.length) throw Object.assign(new Error('RSS items could not be parsed'),{kind:'INVALID_RSS',retryable:false});
   return out;
 }
-function norm(s=''){ return s.toLowerCase().normalize('NFKC').replace(/\s+/g,' ').trim(); }
-function searchUrl(q,hl,gl,ceid){ return `${GOOGLE}/search?q=${encodeURIComponent(q)}&hl=${encodeURIComponent(hl)}&gl=${gl}&ceid=${encodeURIComponent(ceid)}`; }
-function edition(country){ return EDITIONS[country] || [country,'en-US','US','US:en','English']; }
-function sleep(ms){ return new Promise(resolve=>setTimeout(resolve,ms)); }
-function retryableStatus(status){ return status===429 || status>=500; }
-
-async function fetchFeed(url,staggerMs=0){
-  const started=Date.now();
-  let lastError=null;
-
-  for(let attempt=1; attempt<=GOOGLE_MAX_ATTEMPTS; attempt++){
-    if(attempt>1) await sleep(GOOGLE_RETRY_DELAY_MS + staggerMs);
-
-    const controller=new AbortController();
-    const timeout=setTimeout(()=>controller.abort(),GOOGLE_ATTEMPT_TIMEOUT_MS);
-    try{
-      const response=await fetch(url,{
-        headers:{'User-Agent':'WorldNewsGlobe/1.0'},
-        signal:controller.signal
-      });
-      const attemptElapsed=Date.now()-started;
-      if(response.ok){
-        return {
-          xml:await response.text(),
-          status:response.status,
-          elapsed_ms:Date.now()-started,
-          attempts:attempt
-        };
-      }
-
-      lastError=new Error(`Google News HTTP ${response.status} after ${attemptElapsed}ms (attempt ${attempt}/${GOOGLE_MAX_ATTEMPTS})`);
-      if(!retryableStatus(response.status) || attempt===GOOGLE_MAX_ATTEMPTS) throw lastError;
-    }catch(error){
-      if(error?.name==='AbortError'){
-        lastError=new Error(`Google News timeout after ${GOOGLE_ATTEMPT_TIMEOUT_MS}ms (attempt ${attempt}/${GOOGLE_MAX_ATTEMPTS})`);
-      }else{
-        lastError=error;
-      }
-      if(attempt===GOOGLE_MAX_ATTEMPTS) throw lastError;
-    }finally{
-      clearTimeout(timeout);
+async function readBounded(response){
+  const reader=response.body?.getReader();
+  if(!reader) return '';
+  const decoder=new TextDecoder();
+  let total=0,text='';
+  try {
+    while(true){
+      const {done,value}=await reader.read();
+      if(done) return text+decoder.decode();
+      total+=value.byteLength;
+      if(total>1048576){await reader.cancel();throw Object.assign(new Error('RSS exceeds 1 MiB limit'),{kind:'INVALID_RSS',retryable:false});}
+      text+=decoder.decode(value,{stream:true});
     }
+  } finally {reader.releaseLock();}
+}
+function retryAfter(response){
+  const value=response.headers.get('Retry-After');
+  if(!value) return 0;
+  const seconds=/^\d+$/.test(value)?Number(value):Math.ceil((Date.parse(value)-Date.now())/1000);
+  return Number.isFinite(seconds)?Math.max(0,seconds):0;
+}
+export async function fetchFeed(url,language,options={}) {
+  const started=Date.now(),attempts=[];
+  const fetcher=options.fetcher || fetch;
+  const timeoutMs=options.attemptTimeoutMs ?? 4000;
+  const pause=options.sleep || (ms=>new Promise(resolve=>setTimeout(resolve,ms)));
+  let lastError;
+  for(let attempt=1;attempt<=2;attempt++){
+    const controller=new AbortController();
+    let timer,status=0;
+    try {
+      const deadline=new Promise((_,reject)=>{timer=setTimeout(()=>{
+        controller.abort();
+        reject(Object.assign(new Error('Google News request timed out'),{kind:'TIMEOUT',retryable:true}));
+      },timeoutMs);});
+      const articles=await Promise.race([Promise.resolve().then(async()=>{
+        const response=await fetcher(url,{headers:{'User-Agent':'WorldNewsGlobe/1.0'},signal:controller.signal});
+        status=response.status;
+        if(!response.ok){
+          const retry_after_seconds=retryAfter(response);
+          // Consume/cancel failed response bodies before considering a retry.
+          await response.body?.cancel().catch(()=>{});
+          throw Object.assign(new Error(`Google News HTTP ${status}`),{kind:'HTTP',status,retry_after_seconds,retryable:(status===429 || status>=500) && retry_after_seconds<=1});
+        }
+        return parseRss(await readBounded(response),language);
+      }),deadline]);
+      attempts.push({attempt,status,ok:true,elapsed_ms:Date.now()-started,article_count:articles.length});
+      return {articles,status,elapsed_ms:Date.now()-started,attempts:attempt,attempt_details:attempts};
+    } catch(error) {
+      lastError=error;
+      const kind=controller.signal.aborted?'TIMEOUT':error.kind || 'NETWORK';
+      attempts.push({attempt,status,ok:false,kind,error:error.message || String(error),elapsed_ms:Date.now()-started});
+      if(error.retryable===false || attempt===2) break;
+    } finally {clearTimeout(timer);}
+    await pause(Math.max(350,(lastError?.retry_after_seconds||0)*1000));
   }
-
-  throw lastError || new Error('Google News request failed');
+  throw Object.assign(new Error(lastError?.message || 'Google News failed'),{
+    code:'GOOGLE_NEWS_UPSTREAM_FAILED',retry_after_seconds:lastError?.retry_after_seconds || 0,
+    feed_results:[{feed:'keyword-1',ok:false,status:attempts.at(-1)?.status || 0,elapsed_ms:Date.now()-started,attempts:attempts.length,attempt_details:attempts,error:lastError?.message || 'Upstream failure'}]
+  });
 }
-
-function buildQueries(country,region,keyword){
-  const [countryQuery,hl,gl,ceid,language]=edition(country);
-  const place=region || countryQuery || country;
-  let queryPlace=place;
-  if(country==='United States' || country==='United States of America'){
-    if(region==='District of Columbia') queryPlace='Washington DC';
-    if(region==='Washington') queryPlace='Washington state';
-  }
-  const queries=region
-    ? [`"${keyword}" "${queryPlace}" when:1d`, `${keyword} ${queryPlace} when:1d`]
-    : [`"${keyword}" when:1d`, `"${keyword}" ${countryQuery} when:1d`];
-  return {countryQuery,hl,gl,ceid,language,queryPlace,queries};
-}
-
-export async function keywordDebug(country,region,keyword){
-  const cleanKeyword=String(keyword||'').trim().slice(0,80);
-  if(!cleanKeyword) return {ok:false,error:'keyword is required'};
-  const {hl,gl,ceid,language,queryPlace,queries}=buildQueries(country,region,cleanKeyword);
-  const started=Date.now();
-  const settled=await Promise.allSettled(queries.map(async(q,i)=>{
-    const url=searchUrl(q,hl,gl,ceid);
-    const result=await fetchFeed(url,i*150);
-    const articles=parseRss(result.xml,`keyword-${i+1}`,language);
-    return {feed:`keyword-${i+1}`,ok:true,query:q,url,status:result.status,elapsed_ms:result.elapsed_ms,attempts:result.attempts,article_count:articles.length};
-  }));
-  const feeds=settled.map((result,index)=>result.status==='fulfilled'
-    ? result.value
-    : {feed:`keyword-${index+1}`,ok:false,query:queries[index],error:String(result.reason?.message||result.reason||'Google News request failed')}
-  );
-  return {
-    ok:feeds.some(feed=>feed.ok),
-    country,region,keyword:cleanKeyword,query_place:queryPlace,
-    worker_elapsed_ms:Date.now()-started,
-    generated_at:new Date().toISOString(),
-    feeds
-  };
-}
-
+function literal(text){return `"${String(text).replace(/["\r\n\\]/g,' ').replace(/\s+/g,' ').trim()}"`;}
 function score(item,keyword,place){
-  const t=norm(item.title), k=norm(keyword), p=norm(place);
-  let s=0;
-  if(k && t.includes(k)) s+=10;
-  if(p && t.includes(p)) s+=4;
-  const age=Math.max(0,(Date.now()-new Date(item.published).getTime())/3600000)||24;
+  const t=norm(item.title);let s=0;
+  if(t.includes(norm(keyword))) s+=10;
+  if(place && t.includes(norm(place))) s+=4;
+  const timestamp=Date.parse(item.published);
+  const age=Number.isFinite(timestamp)?Math.max(0,(Date.now()-timestamp)/3600000):24;
   s+=Math.max(0,5-age/6);
   if(/reuters|associated press|ap news|bbc|nhk|共同通信|時事通信|中央社|bloomberg/i.test(item.source||'')) s+=2;
   return s;
 }
-
-export async function keywordSearch(country,region,keyword){
-  const cleanKeyword=String(keyword||'').trim().slice(0,80);
-  if(!cleanKeyword) return {ok:true,country,region,keyword:'',article_count:0,articles:[]};
-  const {hl,gl,ceid,language,queryPlace,queries}=buildQueries(country,region,cleanKeyword);
-
-  const settled=await Promise.allSettled(queries.map(async(q,i)=>{
-    const result=await fetchFeed(searchUrl(q,hl,gl,ceid),i*150);
-    return {
-      articles:parseRss(result.xml,`keyword-${i+1}`,language),
-      status:result.status,
-      elapsed_ms:result.elapsed_ms,
-      attempts:result.attempts
-    };
-  }));
-  const feed_results=settled.map((result,index)=>result.status==='fulfilled'
-    ? {feed:`keyword-${index+1}`,ok:true,status:result.value.status,elapsed_ms:result.value.elapsed_ms,attempts:result.value.attempts,article_count:result.value.articles.length}
-    : {feed:`keyword-${index+1}`,ok:false,error:String(result.reason?.message||result.reason||'Google News request failed')}
-  );
-  const successful=settled.filter(result=>result.status==='fulfilled');
-  if(!successful.length){
-    const error=new Error(`All Google News queries failed: ${feed_results.map(result=>result.error).join('; ')}`);
-    error.code='GOOGLE_NEWS_UPSTREAM_FAILED';
-    error.feed_results=feed_results;
+async function cachedResult(cache,key){
+  if(!cache) return null;
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(async()=>{const response=await cache.match(key);return response?await response.json():null;}),
+      new Promise(resolve=>{timer=setTimeout(()=>resolve(null),200);})
+    ]);
+  } catch {return null;} finally {clearTimeout(timer);}
+}
+export async function keywordSearch(country,region,keyword,options={}){
+  const started=Date.now();
+  country=canonicalCountry(country);
+  region=String(region||'').trim().slice(0,100);
+  keyword=String(keyword||'').trim().slice(0,80);
+  if(!keyword) return {ok:true,country,region,keyword,article_count:0,articles:[],version:KEYWORD_VERSION};
+  const [countryQuery,hl,gl,ceid,language]=EDITIONS[country] || [country,'en-US','US','US:en','English'];
+  const cache=options.cache===undefined?globalThis.caches?.default:options.cache;
+  const cacheKey=new Request('https://world-news-refresh.kozakurayuki.workers.dev/__keyword-cache/'+KEYWORD_VERSION+'/'+encodeURIComponent(JSON.stringify([country,region,keyword,options.sourceLanguage||'auto'])));
+  const previous=await cachedResult(cache,cacheKey);
+  const age=previous?Date.now()-Date.parse(previous.generated_at):Infinity;
+  const usable=previous?.version===KEYWORD_VERSION && previous.country===country && previous.region===region && previous.keyword===keyword && Array.isArray(previous.articles) && previous.articles.length>0 && age>=0 && age<STALE_MS;
+  if(usable && age<FRESH_MS && !options.force) return {...previous,cached:true,stale:false,cache_age_ms:age,worker_elapsed_ms:Date.now()-started};
+  const target=ceid.split(':')[1].split('-')[0];
+  const localization=await localizeKeyword(keyword,target,options.env,options);
+  let place=region || countryQuery;
+  if(country==='United States' && region==='Washington') place='Washington state';
+  if(country==='United States' && region==='District of Columbia') place='Washington DC';
+  // ONE localized query. National mode selects the local news edition, not a
+  // guaranteed list of domestic events. Region mode adds the selected place.
+  const query=[literal(localization.term),region?literal(place):'', 'when:1d'].filter(Boolean).join(' ');
+  const url=`${GOOGLE}/search?${new URLSearchParams({q:query,hl,gl,ceid})}`;
+  try {
+    const feed=await fetchFeed(url,language,options);
+    const seen=new Set(),sources=new Map(),articles=[];
+    const candidates=feed.articles.map(item=>({...item,rank_score:score(item,localization.term,place)})).sort((a,b)=>b.rank_score-a.rank_score);
+    for(const item of candidates){
+      const key=norm(item.title),source=norm(item.source)||'unknown';
+      if(seen.has(key) || (sources.get(source)||0)>=2) continue;
+      seen.add(key);sources.set(source,(sources.get(source)||0)+1);articles.push(item);
+      if(articles.length===10) break;
+    }
+    const result={ok:true,version:KEYWORD_VERSION,country,region,keyword,search_keyword:localization.term,localization,
+      edition:{hl,gl,ceid,language,fallback:!EDITIONS[country]},query_place:place,query,
+      generated_at:new Date().toISOString(),mode:'keyword',source:'Google News RSS via Cloudflare Worker',
+      candidate_count:candidates.length,article_count:articles.length,articles,cached:false,stale:false,
+      worker_elapsed_ms:Date.now()-started,
+      feed_results:[{feed:'keyword-1',ok:true,query,url,status:feed.status,elapsed_ms:feed.elapsed_ms,attempts:feed.attempts,attempt_details:feed.attempt_details,article_count:feed.articles.length}]};
+    // Never cache errors or zero-result responses. Keep only same-query success.
+    if(cache && articles.length){
+      const write=Promise.resolve().then(()=>cache.put(cacheKey,new Response(JSON.stringify(result),{headers:{'Content-Type':'application/json','Cache-Control':`public, max-age=${STALE_MS/1000}`}}))).catch(()=>{});
+      if(options.ctx) options.ctx.waitUntil(write);else await write;
+    }
+    return result;
+  } catch(error) {
+    if(usable && Date.now()-Date.parse(previous.generated_at)<STALE_MS && error.code==='GOOGLE_NEWS_UPSTREAM_FAILED') return {...previous,cached:true,stale:true,cache_age_ms:Date.now()-Date.parse(previous.generated_at),worker_elapsed_ms:Date.now()-started,upstream_error:error.message,feed_results:error.feed_results};
+    if(error.feed_results) error.feed_results=error.feed_results.map(feed=>({...feed,query,url}));
+    error.search_keyword=localization.term;
+    error.localization=localization;
     throw error;
   }
-  const all=successful.flatMap(result=>result.value.articles);
-  const seen=new Set();
-  const unique=[];
-  for(const item of all){
-    const key=norm(item.title);
-    if(seen.has(key)) continue;
-    seen.add(key);
-    unique.push({...item,rank_score:score(item,cleanKeyword,queryPlace)});
+}
+export async function keywordDebug(country,region,keyword,options={}){
+  const started=Date.now();
+  try {
+    const result=await keywordSearch(country,region,keyword,{...options,force:true});
+    const {articles,...debug}=result;
+    return {...debug,feeds:result.feed_results};
+  } catch(error) {
+    return {ok:false,country:canonicalCountry(country),region,keyword,worker_elapsed_ms:Date.now()-started,version:KEYWORD_VERSION,code:error.code || 'KEYWORD_ERROR',error:error.message,search_keyword:error.search_keyword,localization:error.localization,feeds:error.feed_results || []};
   }
-  unique.sort((a,b)=>b.rank_score-a.rank_score);
-
-  const articles=[];
-  const sourceCount=new Map();
-  for(const item of unique){
-    const src=norm(item.source)||'unknown';
-    if((sourceCount.get(src)||0)>=2) continue;
-    sourceCount.set(src,(sourceCount.get(src)||0)+1);
-    articles.push(item);
-    if(articles.length>=10) break;
-  }
-
-  return {
-    ok:true,country,region,keyword:cleanKeyword,
-    generated_at:new Date().toISOString(),
-    source:'Google News RSS via Cloudflare Worker',
-    mode:'keyword',candidate_count:all.length,article_count:articles.length,
-    partial:successful.length<settled.length,feed_results,articles
-  };
 }
