@@ -3,9 +3,10 @@
   const baseFetchNews = fetchNews.bind(window);
   let keyword = String(window.initialWorldNewsKeyword || '').trim().slice(0, 80);
   let requestId = 0;
-  let activeController = null;
-  let activeKey = '';
-  let activePromise = null;
+  let active = null;
+  window.keywordSearchVersion = '2026-10-17.1';
+  const diagnostics = [];
+  window.keywordDiagnostics = diagnostics;
   const REQUEST_TIMEOUT_MS = 15000;
 
   const TEXT = {
@@ -104,118 +105,177 @@
     return snapshot;
   }
 
-  function formatError(error){
-    const name=String(error?.name || 'Error');
-    const message=String(error?.message || error || '').trim();
-    if(name==='AbortError') return 'AbortError';
-    return message ? `${name}: ${message}` : name;
+  const feedback = document.createElement('div');
+  feedback.className = 'keyword-feedback';
+  feedback.setAttribute('role', 'status');
+  feedback.style.cssText = 'max-width:340px;font-size:11px;line-height:1.4;color:var(--muted);white-space:normal;';
+  root.appendChild(feedback);
+  const EXTRA = {
+    en:{used:'Search term',fallback:'Local translation unavailable; searching the original term.',stale:'Cached keyword results',timeout:'Search timed out. Press Search to retry.',invalid:'Invalid search response.'},
+    'zh-Hant':{used:'實際搜尋詞',fallback:'當地語言翻譯暫時無法使用，改用原關鍵字搜尋。',stale:'使用此關鍵字的快取結果',timeout:'搜尋逾時，請按搜尋重試。',invalid:'搜尋回應格式不正確。'},
+    ja:{used:'検索に使用した語',fallback:'翻訳を利用できないため、元のキーワードで検索しました。',stale:'キーワードのキャッシュ結果',timeout:'検索がタイムアウトしました。再検索してください。',invalid:'検索応答の形式が不正です。'}
+  };
+  function extra(){ return EXTRA[state.lang] || EXTRA.en; }
+  function trace(event, request, detail = {}) {
+    diagnostics.push({event,id:request?.id,key:request?.snapshot.key,at:new Date().toISOString(),...detail});
+    if(diagnostics.length > 40) diagnostics.shift();
+  }
+  function invalidateStatic() {
+    state.newsRequestId = (state.newsRequestId || 0) + 1;
+  }
+  function cancelActive(reason = 'superseded') {
+    const previous = active;
+    active = null;
+    ++requestId;
+    invalidateStatic();
+    if(previous){
+      trace('cancel', previous, {reason});
+      previous.controller.abort();
+    }
+  }
+  function current(request) {
+    return active === request && request.id === requestId && Boolean(state.country && keyword)
+      && request.snapshot.key === requestSnapshot().key;
+  }
+  function displayTerm(value) {
+    const text = String(value || '');
+    if(state.lang === 'zh-Hant' && window.OpenCC?.Converter) {
+      return window.OpenCC.Converter({from:'cn',to:'twp'})(text);
+    }
+    return text;
+  }
+  function showResult(data, request) {
+    const c=copy(), x=extra();
+    const used=data.search_keyword || request.snapshot.keyword;
+    const info=[`${x.used}: ${displayTerm(used)}`];
+    if(data.localization?.status === 'fallback') info.push(x.fallback);
+    if(data.stale) info.push(`${x.stale} (${Math.max(1,Math.round((data.cache_age_ms||0)/60000))} min)`);
+    feedback.textContent=info.join(' · ');
+    ui.newsWindow.textContent=`${c.active}: ${request.snapshot.keyword}`;
+    if(!data.articles.length){
+      setNewsState(c.none);
+      ui.globeStatus.textContent=`0 · ${request.snapshot.keyword}`;
+    }else{
+      renderStaticNews(data.articles);
+      ui.globeStatus.textContent=`${data.articles.length} · ${request.snapshot.keyword}`;
+    }
+    window.lastKeywordError=null;
   }
 
-  function keywordFetch(){
-    if(!state.country || !keyword) return baseFetchNews();
-
-    const snapshot=requestSnapshot();
-    if(activePromise && activeKey===snapshot.key){
-      console.debug('Keyword search coalesced',snapshot.key);
-      return activePromise;
+  function keywordFetch(options = {}) {
+    if(!state.country || !keyword) {
+      cancelActive('no-keyword-or-country');
+      feedback.textContent='';
+      return baseFetchNews();
     }
-
-    // Only a genuinely different location/keyword supersedes the active request.
-    if(activeController) activeController.abort();
-    const id=++requestId;
-    const controller=new AbortController();
-    activeController=controller;
-    activeKey=snapshot.key;
-    const timeout=setTimeout(()=>controller.abort(),REQUEST_TIMEOUT_MS);
+    const snapshot=requestSnapshot();
+    if(active && !active.controller.signal.aborted && active.snapshot.key===snapshot.key){
+      trace('coalesced',active);
+      return active.promise;
+    }
+    cancelActive();
+    const request={id:requestId,snapshot,controller:new AbortController(),started:Date.now(),timedOut:false,promise:null};
+    active=request;
+    invalidateStatic();
     const c=copy();
-
     setNewsState(c.searching,true);
     ui.newsWindow.textContent=`${c.active}: ${snapshot.keyword}`;
     ui.globeStatus.textContent=c.searching;
+    feedback.textContent='';
+    trace('start',request);
 
-    const promise=(async()=>{
-      try{
-        const response=await fetch(ENDPOINT,{
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({country:snapshot.country,region:snapshot.region,keyword:snapshot.keyword}),
-          signal:controller.signal
-        });
-        const data=await response.json().catch(()=>({}));
-        if(id!==requestId) return;
-        if(!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    // Use a separate settlement deadline: even a late/ignored abort cannot pin
+    // the single-flight slot forever. Cleanup is by request identity, NOT key.
+    let rejectStop;
+    const stopped=new Promise((_,reject)=>{rejectStop=reject;});
+    const onAbort=()=>rejectStop(new DOMException('Search cancelled','AbortError'));
+    request.controller.signal.addEventListener('abort',onAbort,{once:true});
+    const timer=setTimeout(()=>{
+      request.timedOut=true;
+      request.controller.abort();
+    },REQUEST_TIMEOUT_MS);
 
-        if(!Array.isArray(data.articles) || !data.articles.length){
-          setNewsState(c.none);
-          ui.globeStatus.textContent=`0 · ${snapshot.keyword}`;
-          return;
-        }
-
-        renderStaticNews(data.articles);
-        ui.globeStatus.textContent=`${data.article_count || data.articles.length} · ${snapshot.keyword}`;
-      }catch(error){
-        if(id!==requestId) return;
-        const detail=formatError(error);
-        window.lastKeywordError={detail,key:snapshot.key,at:new Date().toISOString()};
-        console.error('Keyword news failed',window.lastKeywordError,error);
-        setNewsState(c.error);
-        ui.newsWindow.textContent=`${c.active}: ${snapshot.keyword}`;
-        ui.globeStatus.textContent=`${c.error} · ${detail}`;
-      }finally{
-        clearTimeout(timeout);
-        if(activeController===controller) activeController=null;
-        if(activeKey===snapshot.key){
-          activeKey='';
-          activePromise=null;
-        }
+    const task=Promise.resolve().then(async()=>{
+      if(request.controller.signal.aborted) throw new DOMException('Search cancelled','AbortError');
+      const response=await fetch(ENDPOINT,{
+        method:'POST',headers:{'Content-Type':'application/json'},cache:'no-store',
+        body:JSON.stringify({country:snapshot.country,region:snapshot.region,keyword:snapshot.keyword,refresh:options.force===true}),
+        signal:request.controller.signal
+      });
+      request.httpStatus=response.status;
+      let data;
+      try { data=await response.json(); }
+      catch { throw new Error(`${extra().invalid} HTTP ${response.status}`); }
+      request.serverRequestId=data.request_id;
+      if(!response.ok || !data.ok){
+        const error=new Error(data.error || `HTTP ${response.status}`);
+        error.code=data.code;
+        error.feeds=data.feed_results;
+        throw error;
       }
-    })();
-
-    activePromise=promise;
-    return promise;
+      if(!Array.isArray(data.articles)) throw new Error(extra().invalid);
+      return data;
+    });
+    request.promise=Promise.race([task,stopped]).then(data=>{
+      if(!current(request)){trace('discarded',request);return;}
+      showResult(data,request);
+      trace('success',request,{http:request.httpStatus,count:data.articles.length,elapsed_ms:Date.now()-request.started,request_id:data.request_id,cached:Boolean(data.cached),stale:Boolean(data.stale)});
+    }).catch(error=>{
+      if(!current(request)) return;
+      const detail=request.timedOut ? extra().timeout : `${error.name || 'Error'}: ${error.message || error}`;
+      window.lastKeywordError={detail,key:snapshot.key,id:request.id,http:request.httpStatus,code:error.code,feeds:error.feeds,request_id:request.serverRequestId,elapsed_ms:Date.now()-request.started,at:new Date().toISOString()};
+      trace('error',request,window.lastKeywordError);
+      console.error('Keyword news failed',window.lastKeywordError);
+      setNewsState(copy().error);
+      ui.globeStatus.textContent=`${copy().error} · ${detail}`;
+      feedback.textContent=detail;
+    }).finally(()=>{
+      clearTimeout(timer);
+      request.controller.signal.removeEventListener('abort',onAbort);
+      if(active===request) active=null;
+    });
+    return request.promise;
   }
 
-  fetchNews = async function(){
-    if(keyword) return keywordFetch();
-    return baseFetchNews();
-  };
+  fetchNews = function(){ return keywordFetch(); };
 
   function setKeyword(value){
-    keyword=String(value||'').trim().slice(0,80);
+    const next=String(value||'').trim().slice(0,80);
+    if(next!==keyword) cancelActive('keyword-changed');
+    keyword=next;
     input.value=keyword;
     window.worldNewsKeyword=keyword;
     updateCopy();
-    window.syncWorldNewsUrl?.(true);
+    // URL state must not be able to prevent a search (e.g. History API limits).
+    try { window.syncWorldNewsUrl?.(true); }
+    catch(error) { console.warn('Keyword URL update failed',error); }
   }
 
   root.addEventListener('submit',event=>{
     event.preventDefault();
     setKeyword(input.value);
-    if(state.country) keywordFetch();
+    keywordFetch();
     input.blur();
   });
-
   clear.addEventListener('click',()=>{
-    if(activeController){
-      ++requestId;
-      activeController.abort();
-      activeController=null;
-      activeKey='';
-      activePromise=null;
-    }
     setKeyword('');
-    if(state.country) baseFetchNews();
+    keywordFetch();
     input.focus();
   });
+  // A control click is not a globe selection or drag.
+  ['pointerdown','pointerup','click','dblclick'].forEach(name=>root.addEventListener(name,event=>event.stopPropagation()));
 
   const liveRefresh=document.getElementById('refreshNowBtn');
   liveRefresh?.addEventListener('click',event=>{
     if(!keyword) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    keywordFetch();
+    keywordFetch({force:true});
   },true);
-
+  ['backWorldBtn','usBackWorldBtn'].forEach(id=>document.getElementById(id)?.addEventListener('click',()=>{
+    cancelActive('back-to-world');
+    feedback.textContent='';
+  }));
   ui.languageButtons.forEach(button=>button.addEventListener('click',()=>setTimeout(updateCopy,0)));
 
   setKeyword(keyword);
